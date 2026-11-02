@@ -36,7 +36,8 @@ const clean = (s) => s.replace(/\*\*/g, '').replace(/`/g, '').trim();
 const paths = (s) => [...s.matchAll(/`([^`\s]+\.(?:md|cs|ts|py|yml|yaml|json|sql|ps1|conf))`/g)].map((m) => m[1]);
 
 function parse() {
-  const lines = fs.readFileSync(P().README, 'utf8').split(/\r?\n/);
+  let texto; try { texto = fs.readFileSync(P().README, 'utf8'); } catch { return []; } // projeto sem pendencias/README.md ainda: painel abre vazio, não quebra
+  const lines = texto.split(/\r?\n/);
   const sections = [];
   let sec = null;
   let group = '';
@@ -237,8 +238,8 @@ function startJob(chat, text) {
   const args = ['-p', '--output-format', 'text', '--allowedTools', tools, '--setting-sources', 'project', '--settings', SETTINGS_FILE,
     '--mcp-config', mcpCfg, '--strict-mcp-config', '--permission-prompt-tool', 'mcp__central__approve', '--append-system-prompt', JSON.stringify(SYSTEM)];
   if (bloqueadas.length) args.push('--disallowedTools', bloqueadas.join(','));
-  const dirsModelo = (chat.modelos || []).map((id) => catalogo.pastaDoModelo(id)).filter(Boolean); // modelos do catálogo: leitura liberada, escrita bloqueada (settings)
-  if (dirsModelo.length) args.push('--add-dir', ...dirsModelo.map((d) => `"${d}"`));
+  const dirsRef = catalogo.pastasDeLeitura(chat.referencias || []); // documentos da biblioteca: leitura liberada, escrita bloqueada (settings)
+  if (dirsRef.length) args.push('--add-dir', ...dirsRef.map((d) => `"${d}"`));
   if (chat.plan && !doc) args.push('--permission-mode', 'plan');
   args.push('--model', MODELS.includes(chat.model) ? chat.model : DEFAULT_MODEL); // validado contra MODELS
   args.push(first ? '--session-id' : '--resume', chat.id);
@@ -385,11 +386,17 @@ async function core(req, res, url) {
             areas: AREAS.map(([id, nome]) => ({ id, nome, arquivos: contar(path.join(R, 'docs', id)) })),
             geral: { docsReadme: tem('docs', 'README.md'), claudeMd: tem('CLAUDE.md'), planning: tem('planning', 'README.md'), pendencias: tem('pendencias', 'README.md') },
             total: contar(path.join(R, 'docs')), pastas, recentes: listDocs().sort((a, b) => b.mtime - a.mtime).slice(0, 12), job,
-            stack: catalogo.detectarStack(R).map((id) => ({ id, nome: catalogo.rotuloStack(id) })),
-            catalogo: catalogo.listar().map((m) => ({ ...m, stack: (m.stack || []).map((id) => ({ id, nome: catalogo.rotuloStack(id) })), compat: (m.stack || []).filter((s) => catalogo.detectarStack(R).includes(s)).length })).sort((a, b) => b.compat - a.compat),
-            areasReaproveitaveis: catalogo.AREAS_REAPROVEITAVEIS,
           });
         }
+        case '/api/biblioteca': {
+          const todos = catalogo.listarDocs(), q = (url.searchParams.get('q') || '').trim();
+          const docs = q ? catalogo.listarDocs(undefined, { q }) : todos;
+          return send(res, 200, {
+            areas: catalogo.AREAS_REAPROVEITAVEIS.map((id) => ({ id, nome: catalogo.AREAS[id], total: todos.filter((d) => d.area === id).length })),
+            colecoes: catalogo.listarColecoes(), docs, meus: catalogo.docsDoProjeto(P().ROOT), projeto: { id: P().id, nome: P().nome },
+          });
+        }
+        case '/api/biblioteca/doc': { try { return send(res, 200, catalogo.lerDoc(url.searchParams.get('id') || '')); } catch (e) { return send(res, 404, { erro: e.message }); } }
         case '/api/permissoes': {
           const c = cfgSegura(P().politica);
           return send(res, 200, {
@@ -446,28 +453,52 @@ async function core(req, res, url) {
         try { return send(res, 200, projetos.editar({ id: String(body.id || ''), nome: body.nome, cor: body.cor, descricao: body.descricao, icone: body.icone, logo: body.logo, removerIcone: body.removerIcone === true, removerLogo: body.removerLogo === true })); }
         catch (e) { return send(res, 400, { erro: e.message }); }
       }
-      case '/api/catalogo/salvar': { // copia a documentação técnica deste projeto para o catálogo de modelos
+      case '/api/biblioteca/publicar': { // copia documentos técnicos deste projeto para a biblioteca (coleção = este projeto)
         try {
-          const stack = Array.isArray(body.stack) ? body.stack : catalogo.detectarStack(P().ROOT);
-          return send(res, 200, catalogo.salvar({ raizProjeto: P().ROOT, nomeProjeto: P().nome, nome: body.nome, descricao: body.descricao, areas: body.areas, stack }));
+          const r = catalogo.publicar({ raizProjeto: P().ROOT, colecao: P().id, nome: P().nome, arquivos: body.arquivos });
+          audit(P(), { chat: '-', tool: 'biblioteca', resumo: `publicou ${r.publicados} documento(s)`, risco: 'normal', decisao: 'publicado', quem: 'dono', motivo: 'documentos copiados para a biblioteca' });
+          return send(res, 200, r);
         } catch (e) { return send(res, 400, { erro: e.message }); }
       }
-      case '/api/catalogo/excluir': {
-        try { catalogo.excluir(String(body.id || '')); audit(P(), { chat: '-', tool: 'catálogo', resumo: String(body.id), risco: 'normal', decisao: 'excluído', quem: 'dono', motivo: 'modelo removido do catálogo' }); return send(res, 200, { ok: true }); }
-        catch (e) { return send(res, 400, { erro: e.message }); }
+      case '/api/biblioteca/remover': {
+        try {
+          if (body.id) catalogo.removerDoc(String(body.id)); else catalogo.removerColecao(String(body.colecao || ''));
+          audit(P(), { chat: '-', tool: 'biblioteca', resumo: String(body.id || body.colecao), risco: 'normal', decisao: 'removido', quem: 'dono', motivo: 'removido da biblioteca' });
+          return send(res, 200, { ok: true });
+        } catch (e) { return send(res, 400, { erro: e.message }); }
+      }
+      case '/api/biblioteca/anexar': { // biblioteca -> este projeto: copiar como está, ou o Claude adapta ao código
+        const ids = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(String))].slice(0, 40);
+        if (!ids.length) return send(res, 400, { erro: 'escolha pelo menos um documento' });
+        if (ids.some((id) => !catalogo.resolverId(id))) return send(res, 400, { erro: 'documento inválido' });
+        if (body.modo !== 'adaptar') {
+          try {
+            const r = catalogo.copiarParaProjeto({ raiz: P().ROOT, ids });
+            audit(P(), { chat: '-', tool: 'biblioteca', resumo: `copiou ${r.criados.length + r.renomeados.length} documento(s) para docs/`, risco: 'normal', decisao: 'anexado', quem: 'dono', motivo: [...r.criados, ...r.renomeados.map((x) => x.para)].join(', ').slice(0, 400) });
+            return send(res, 200, r);
+          } catch (e) { return send(res, 400, { erro: e.message }); }
+        }
+        if (Object.values(loadChats().chats).some((c) => c.doc && jobs.get(c.id) && !jobs.get(c.id).done)) return send(res, 409, { erro: 'já existe uma documentação em andamento neste projeto' });
+        const modelo = MODELS.includes(body.modelo) ? body.modelo : DEFAULT_MODEL;
+        let tpl; try { tpl = fs.readFileSync(path.join(HERE, 'modelos', 'adaptar.md'), 'utf8'); } catch { return send(res, 500, { erro: 'modelo de adaptação não encontrado' }); }
+        const docs = catalogo.listarDocs().filter((d) => ids.includes(d.id));
+        const lista = ids.map((id) => { const r = catalogo.resolverId(id), d = docs.find((x) => x.id === id); return `- ${d ? `“${d.titulo}” (${d.areaNome}, origem: ${d.colecaoNome})` : id}: ${r.abs}`; }).join('\n');
+        const prompt = tpl.split('{{NOME}}').join(P().nome).split('{{LISTA_DOCS}}').join(lista);
+        const c = { id: crypto.randomUUID(), title: 'Adaptar documentos da biblioteca', itemId: '', contexto: '', model: modelo, plan: false, edit: false, exec: false, doc: true, referencias: ids, started: false, created: Date.now(), updated: Date.now(),
+          messages: [{ role: 'user', text: `Adaptar ${ids.length} documento${ids.length === 1 ? '' : 's'} da biblioteca ao projeto ${P().nome}.`, ts: Date.now(), model: modelo, plan: false }] };
+        saveChat(c);
+        startJob(c, prompt);
+        return send(res, 200, chatView(c));
       }
       case '/api/documentacao/iniciar': { // o Claude lê o projeto e monta/atualiza docs/ no padrão da Central (modelos/documentar.md)
         const modo = body.modo === 'atualizar' ? 'atualizar' : 'criar', modelo = MODELS.includes(body.modelo) ? body.modelo : DEFAULT_MODEL;
-        const modelos = [...new Set((Array.isArray(body.modelos) ? body.modelos : []).map(String))].filter((id) => catalogo.pastaDoModelo(id)).slice(0, 5);
         if (Object.values(loadChats().chats).some((c) => c.doc && jobs.get(c.id) && !jobs.get(c.id).done)) return send(res, 409, { erro: 'já existe uma documentação em andamento neste projeto' });
         let tpl; try { tpl = fs.readFileSync(path.join(HERE, 'modelos', 'documentar.md'), 'utf8'); } catch { return send(res, 500, { erro: 'modelo de documentação não encontrado' }); }
-        const lista = modelos.map((id) => { const m = catalogo.listar().find((x) => x.id === id); return `- “${m.nome}” (stack: ${(m.stack || []).map(catalogo.rotuloStack).join(', ') || 'não informada'}; áreas: ${m.areas.map((a) => a.id).join(', ')}): ${catalogo.pastaDoModelo(id)}`; }).join('\n');
-        tpl = modelos.length ? tpl.replace('[[modelos]]', '').replace('[[/modelos]]', '').split('{{LISTA_MODELOS}}').join(lista) : tpl.replace(/\[\[modelos\]\][\s\S]*?\[\[\/modelos\]\]\n?/, '');
         for (const m of ['criar', 'atualizar']) tpl = m === modo ? tpl.replace(`[[${m}]]`, '').replace(`[[/${m}]]`, '') : tpl.replace(new RegExp(`\\[\\[${m}\\]\\][\\s\\S]*?\\[\\[/${m}\\]\\]`), '');
         const prompt = tpl.split('{{NOME}}').join(P().nome);
         const titulo = modo === 'criar' ? 'Montar a documentação' : 'Atualizar a documentação';
-        const c = { id: crypto.randomUUID(), title: titulo, itemId: '', contexto: '', model: modelo, plan: false, edit: false, exec: false, doc: true, modelos, started: false, created: Date.now(), updated: Date.now(),
-          messages: [{ role: 'user', text: `${titulo} do projeto ${P().nome}${modelos.length ? ` (partindo de ${modelos.length} modelo${modelos.length === 1 ? '' : 's'} do catálogo)` : ''}.`, ts: Date.now(), model: modelo, plan: false }] };
+        const c = { id: crypto.randomUUID(), title: titulo, itemId: '', contexto: '', model: modelo, plan: false, edit: false, exec: false, doc: true, started: false, created: Date.now(), updated: Date.now(),
+          messages: [{ role: 'user', text: `${titulo} do projeto ${P().nome}.`, ts: Date.now(), model: modelo, plan: false }] };
         saveChat(c);
         startJob(c, prompt);
         return send(res, 200, chatView(c));

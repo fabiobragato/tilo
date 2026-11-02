@@ -23,13 +23,6 @@ O projeto já tem documentação. Seu trabalho é achar e corrigir TODA divergê
 6. Não altere código. Só escreva em `docs/`, `planning/`, `pendencias/` e `CLAUDE.md` (em qualquer outro lugar a escrita é bloqueada). Arquivo novo nessas pastas é criado direto; alterar um arquivo que já existe pede a aprovação do dono, então prefira criar arquivos novos e edite só o necessário.
 7. Sem duplicação: quando outro documento já cobre o assunto, aponte para ele com link relativo.
 
-[[modelos]]
-## Modelos de referência (de OUTROS projetos com a mesma stack)
-O dono escolheu modelos de documentação já prontos de outros projetos. Eles estão em pastas SOMENTE DE LEITURA, que você pode listar e ler (Glob/Read):
-{{LISTA_MODELOS}}
-Como usar: aproveite a ESTRUTURA, os temas, o nível de detalhe e os padrões técnicos da stack. O conteúdo final de cada documento, porém, deve descrever ESTE projeto, confirmado no código dele. Nunca copie nomes, regras de negócio, números nem fatos de outro projeto. Se o modelo trata de algo que este projeto não tem, ignore. Quando este projeto seguir de fato o mesmo padrão do modelo (verifique no código), você pode reaproveitar o texto, ajustando nomes, caminhos e valores.
-[[/modelos]]
-
 ## Etapa 1: reconhecimento (antes de escrever)
 Explore o projeto: README, manifestos (package.json, *.csproj, pyproject.toml, requirements.txt, go.mod, pom.xml, Cargo.toml...), Dockerfile e docker-compose, CI/CD, scripts de deploy, pastas de primeiro nível, pontos de entrada, rotas/endpoints, modelos de dados e migrações, autenticação, configuração, testes. Descubra QUAIS camadas existem de fato. Diga ao dono, em poucas linhas, o que encontrou e quais áreas vai documentar.
 

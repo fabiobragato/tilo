@@ -22,12 +22,15 @@ Menu **Documentação** (em cada projeto). O Claude lê o código e monta/atuali
 - **Segurança:** o Claude não tem terminal nessa conversa. Só pode escrever em `docs/`, `planning/`, `pendencias/` e `CLAUDE.md` (código, `.env`, chaves e qualquer lugar fora do projeto são bloqueados). Arquivo **novo** é criado direto; **alterar um arquivo existente** abre o modal de aprovação. Tudo fica no log de auditoria do projeto.
 - A tela mostra a cobertura por área, os arquivos criados em tempo quase real e o link para a conversa com o resumo final. Modelo de IA padrão: Sonnet (Opus é mais caprichado e usa mais a assinatura; prefira um dos dois a Haiku em projetos reais). Costuma levar de 5 a 30 minutos.
 
-### Catálogo de modelos reaproveitáveis por stack
-Cada projeto documentado pode virar um **modelo** para outros projetos da mesma stack (ex.: API .NET + Angular, Python + Docker).
-- **Stack identificada automaticamente** pelos arquivos do projeto (.NET, Angular, React, Vue, Node.js, Python, Java, Go, Rust, PHP, Ruby, Docker, PostgreSQL) e mostrada na tela.
-- **Salvar no catálogo:** na tela Documentação, escolha as áreas técnicas (backend, frontend, infra, deploy, segurança, dados), confira a stack e dê um nome. A Central copia esses documentos para `catalogo/<modelo>/` (relatórios de auditoria ficam de fora). **Regras de negócio, planejamento e pendências nunca entram**: são específicos de cada produto.
-- **Usar um modelo:** ao montar a documentação de outro projeto, marque os modelos desejados (os da mesma stack aparecem como *mesma stack* e vêm marcados em projetos sem docs). O Claude lê o modelo em modo somente leitura e aproveita a **estrutura, os temas e os padrões técnicos**, mas cada documento final descreve **o projeto novo**, confirmado no código: ele não copia nomes, regras nem fatos do projeto de origem.
-- O catálogo é **local** (`catalogo/`, fora do git), porque contém a documentação dos seus projetos. Para compartilhar, copie a pasta de um modelo para o `catalogo/` de outra instalação.
+## Biblioteca de documentos
+Menu **Biblioteca de documentos** (em cada projeto). É um acervo de documentos técnicos prontos, vindos dos seus outros projetos, organizado por **área** (Backend, Frontend, Infraestrutura, Deploy, Segurança, Plataforma de dados). Serve para projetos novos ou já existentes.
+- **Buscar:** por assunto (procura no título, no nome e no conteúdo), com filtros por área e por projeto de origem. **Ver** abre o documento inteiro.
+- **Anexar a este projeto:** marque os documentos e clique em *Anexar ao projeto*. Duas opções:
+  - **Copiar e adaptar com o Claude** (recomendado): o Claude lê os documentos escolhidos como referência (somente leitura) e escreve versões que descrevem **este projeto**, conferidas no código. Ele não copia nomes, regras nem valores do projeto de origem, e pula o que o projeto não tem (ex.: rotas Angular num projeto sem Angular). Roda como a conversa de documentação, com as mesmas restrições de segurança.
+  - **Só copiar:** cria cópias exatas em `docs/<área>/`, na hora, com um aviso no topo de que vieram de outro projeto. **Nunca sobrescreve**: se já existir um documento com o mesmo nome, a cópia ganha o nome da origem no final.
+- **Publicar documentos deste projeto:** escolhe, por área e por documento, o que vai para a biblioteca (relatórios de auditoria ficam de fora). Publicar de novo atualiza os mesmos arquivos. **Regras de negócio, planejamento e pendências nunca entram**: são específicos de cada produto.
+- **Gerenciar:** no fim da página dá para remover tudo o que veio de um projeto.
+- A biblioteca é **local** (`catalogo/<projeto>/<área>/`, fora do git), porque contém a documentação dos seus projetos. Para compartilhar, copie a pasta de um projeto para o `catalogo/` de outra instalação.
 
 ## Usar
 - **Atalho** *Central de Projetos* na área de trabalho (`scripts\instalar-atalho.ps1` cria). Sobe o servidor oculto (se preciso) e abre o navegador já autenticado. Manual: `iniciar.cmd` → http://localhost:4777/.

@@ -1,115 +1,137 @@
-// Catálogo de modelos de documentação reaproveitáveis por stack. Local (catalogo/, fora do git) e sem dependências.
-// Um modelo é uma cópia da documentação TÉCNICA de um projeto (ex.: .NET + Angular), usada como ponto de partida em outros projetos
-// da mesma stack. Regras de negócio (business/), planejamento e pendências são específicas de cada produto e nunca entram.
+// Biblioteca de documentos reaproveitáveis, organizada por ÁREA. Local (catalogo/, fora do git) e sem dependências.
+// Estrutura: catalogo/<coleção>/<área>/<arquivo>.md, onde a coleção é o projeto de origem. Só documentação TÉCNICA entra
+// (backend, frontend, infra, deploy, segurança, dados): regras de negócio, planejamento e pendências são específicos de cada produto.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const DIR_CATALOGO = path.join(HERE, 'catalogo');
-export const AREAS_REAPROVEITAVEIS = ['backend', 'frontend', 'infra', 'deploy', 'security', 'data-platform'];
-const ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
-const MAX_ARQ = 300_000, MAX_TOTAL = 3_000_000;
+export const AREAS = { backend: 'Backend', frontend: 'Frontend', infra: 'Infraestrutura', deploy: 'Deploy', security: 'Segurança', 'data-platform': 'Plataforma de dados' };
+export const AREAS_REAPROVEITAVEIS = Object.keys(AREAS);
+const COL = /^[a-z0-9][a-z0-9-]{0,39}$/;
+const SEG = /^[A-Za-z0-9][\w.\- ]{0,80}$/; // começa com letra/número: ".." e arquivos ocultos não passam
+const MAX_ARQ = 300_000, MAX_TOTAL = 3_000_000, MAX_DOCS = 400;
 
-// ---------- detecção de stack ----------
-export const STACKS = {
-  dotnet: '.NET', angular: 'Angular', react: 'React', vue: 'Vue', node: 'Node.js', python: 'Python', java: 'Java', go: 'Go', rust: 'Rust', php: 'PHP', ruby: 'Ruby', docker: 'Docker', postgres: 'PostgreSQL',
-};
-const RUIDO = new Set(['node_modules', '.git', '.vs', '.idea', '.vscode', 'bin', 'obj', 'dist', 'build', 'out', '.angular', '__pycache__', '.venv', 'venv', 'coverage', '.next', 'target', 'vendor']);
-
-// Procura marcadores nos 4 primeiros níveis (no máximo 4000 entradas). Retorna ids de STACKS, sem repetição.
-export function detectarStack(raiz) {
-  const achou = new Set(); let vistos = 0;
-  const ler = (f) => { try { return fs.readFileSync(f, 'utf8').slice(0, 200_000); } catch { return ''; } };
-  const walk = (dir, nivel) => {
-    let es; try { es = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-    for (const e of es) {
-      if (++vistos > 4000) return;
-      const n = e.name, abs = path.join(dir, n), baixo = n.toLowerCase();
-      if (e.isDirectory()) { if (!RUIDO.has(n) && !n.startsWith('.') && nivel < 4) walk(abs, nivel + 1); continue; }
-      if (/\.(csproj|sln|fsproj)$/.test(baixo)) achou.add('dotnet');
-      else if (baixo === 'package.json') {
-        const j = ler(abs); achou.add('node');
-        if (/"@angular\/core"/.test(j)) achou.add('angular'); if (/"react"\s*:/.test(j)) achou.add('react'); if (/"vue"\s*:/.test(j)) achou.add('vue');
-      } else if (['requirements.txt', 'pyproject.toml', 'setup.py', 'pipfile'].includes(baixo)) achou.add('python');
-      else if (baixo === 'pom.xml' || /^build\.gradle(\.kts)?$/.test(baixo)) achou.add('java');
-      else if (baixo === 'go.mod') achou.add('go');
-      else if (baixo === 'cargo.toml') achou.add('rust');
-      else if (baixo === 'composer.json') achou.add('php');
-      else if (baixo === 'gemfile') achou.add('ruby');
-      else if (baixo === 'dockerfile' || /^docker-compose.*\.ya?ml$/.test(baixo) || baixo === 'compose.yaml' || baixo === 'compose.yml') {
-        achou.add('docker'); if (/postgres/i.test(ler(abs))) achou.add('postgres');
-      }
-    }
-  };
-  walk(raiz, 0);
-  return [...achou].filter((s) => STACKS[s]);
+// ---------- ids e caminhos seguros ----------
+// id de documento = "<coleção>/<área>/<caminho>.md". Valida cada parte e confirma que o caminho final está dentro do catálogo.
+export function resolverId(id, dir = DIR_CATALOGO) {
+  const p = String(id || '').split('/');
+  if (p.length < 3) return null;
+  const [colecao, area, ...rel] = p;
+  if (!COL.test(colecao) || !AREAS[area] || !rel.every((s) => SEG.test(s)) || !rel[rel.length - 1].toLowerCase().endsWith('.md')) return null;
+  const abs = path.resolve(dir, colecao, area, ...rel);
+  if (!abs.startsWith(path.resolve(dir, colecao, area) + path.sep)) return null;
+  return { colecao, area, rel: rel.join('/'), abs };
 }
-export const rotuloStack = (id) => STACKS[id] || id;
 
-// ---------- catálogo ----------
-const slug = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+const titulo = (txt, fallback) => { const m = /^#\s+(.+)$/m.exec(txt); return (m ? m[1] : fallback).replace(/[`*_]/g, '').trim().slice(0, 120); };
+function resumo(txt) {
+  for (const l of txt.split(/\r?\n/)) { const t = l.trim(); if (!t || /^(#|---|>|\||```|!\[)/.test(t)) continue; return t.replace(/[`*_]|\[([^\]]*)\]\([^)]*\)/g, '$1').slice(0, 170); }
+  return '';
+}
+const lerTexto = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
+const mdsEm = (dir) => { const out = []; const walk = (d, rel) => { let es; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return; } for (const e of es) { const r = rel ? `${rel}/${e.name}` : e.name; if (e.isDirectory()) walk(path.join(d, e.name), r); else if (e.name.toLowerCase().endsWith('.md')) out.push(r); } }; walk(dir, ''); return out.sort(); };
 
-export function listar(dir = DIR_CATALOGO) {
-  let ids = []; try { ids = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && ID.test(e.name)).map((e) => e.name); } catch { return []; }
+// ---------- consulta ----------
+export function listarColecoes(dir = DIR_CATALOGO) {
+  let ids = []; try { ids = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && COL.test(e.name)).map((e) => e.name); } catch { return []; }
+  return ids.map((id) => {
+    let m = {}; try { m = JSON.parse(fs.readFileSync(path.join(dir, id, 'manifest.json'), 'utf8')); } catch {}
+    const total = AREAS_REAPROVEITAVEIS.reduce((n, a) => n + mdsEm(path.join(dir, id, a)).length, 0);
+    return { id, nome: String(m.nome || id), publicadoEm: String(m.publicadoEm || m.criadoEm || ''), total };
+  }).filter((c) => c.total > 0).sort((a, b) => a.nome.localeCompare(b.nome));
+}
+
+// Todos os documentos (sem o conteúdo). q: busca por palavras no título, nome do arquivo e conteúdo.
+export function listarDocs(dir = DIR_CATALOGO, { q = '' } = {}) {
+  const palavras = String(q).toLowerCase().split(/\s+/).filter((w) => w.length >= 2);
+  const nomes = Object.fromEntries(listarColecoes(dir).map((c) => [c.id, c.nome]));
   const out = [];
-  for (const id of ids) {
-    try { const m = JSON.parse(fs.readFileSync(path.join(dir, id, 'manifest.json'), 'utf8')); out.push({ ...m, id }); } catch {}
+  for (const col of Object.keys(nomes)) for (const area of AREAS_REAPROVEITAVEIS) for (const rel of mdsEm(path.join(dir, col, area))) {
+    if (out.length >= MAX_DOCS) return out;
+    const abs = path.join(dir, col, area, ...rel.split('/')); let st; try { st = fs.statSync(abs); } catch { continue; }
+    const txt = lerTexto(abs), t = titulo(txt, rel.replace(/\.md$/i, ''));
+    if (palavras.length) { const alvo = `${t}\n${rel}\n${AREAS[area]}\n${txt}`.toLowerCase(); if (!palavras.every((w) => alvo.includes(w))) continue; }
+    out.push({ id: `${col}/${area}/${rel}`, colecao: col, colecaoNome: nomes[col], area, areaNome: AREAS[area], arquivo: rel, titulo: t, resumo: resumo(txt), bytes: st.size });
   }
-  return out.sort((a, b) => String(b.criadoEm).localeCompare(String(a.criadoEm)));
+  return out;
 }
 
-export const pastaDoModelo = (id, dir = DIR_CATALOGO) => (ID.test(id) && fs.existsSync(path.join(dir, id, 'manifest.json')) ? path.join(dir, id) : null);
-
-// Copia a documentação técnica das áreas escolhidas para catalogo/<id>/ e grava o manifesto. Lança Error em português.
-export function salvar({ raizProjeto, nomeProjeto, nome, descricao = '', areas, stack = [] }, dir = DIR_CATALOGO) {
-  nome = String(nome || '').trim();
-  if (nome.length < 3 || nome.length > 60) throw new Error('dê um nome ao modelo (3 a 60 caracteres)');
-  if (String(descricao).length > 200) throw new Error('descrição longa demais (máx. 200 caracteres)');
-  const escolhidas = [...new Set((areas || []).map(String))];
-  if (!escolhidas.length) throw new Error('escolha pelo menos uma área');
-  const invalida = escolhidas.find((a) => !AREAS_REAPROVEITAVEIS.includes(a));
-  if (invalida) throw new Error(`a área “${invalida}” não pode entrar no catálogo (regras de negócio, planejamento e pendências são específicas de cada produto)`);
-  const stk = [...new Set((stack || []).map(String))].filter((s) => STACKS[s]);
-  let id = slug(nome) || 'modelo', n = 1; const base = id;
-  const existentes = new Set(listar(dir).map((e) => e.id));
-  while (existentes.has(id)) id = `${base}-${++n}`;
-
-  const arquivos = []; let total = 0;
-  for (const area of escolhidas) {
-    const origem = path.join(raizProjeto, 'docs', area);
-    const walk = (d, rel) => {
-      let es; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
-      for (const e of es) {
-        const abs = path.join(d, e.name), r = rel ? `${rel}/${e.name}` : e.name;
-        if (e.isDirectory()) { walk(abs, r); continue; }
-        if (!e.name.toLowerCase().endsWith('.md') || /^audit/i.test(e.name)) continue; // relatórios de auditoria são específicos do projeto
-        const st = fs.statSync(abs); if (st.size > MAX_ARQ) continue;
-        total += st.size; if (total > MAX_TOTAL) throw new Error('documentação grande demais para o catálogo (máx. 3 MB)');
-        arquivos.push({ area, rel: r, abs });
-      }
-    };
-    walk(origem, '');
-  }
-  if (!arquivos.length) throw new Error('não há documentos .md nessas áreas em docs/ deste projeto');
-
-  const destino = path.join(dir, id);
-  fs.mkdirSync(destino, { recursive: true });
-  const porArea = {};
-  for (const a of arquivos) {
-    const f = path.join(destino, a.area, ...a.rel.split('/'));
-    fs.mkdirSync(path.dirname(f), { recursive: true });
-    fs.copyFileSync(a.abs, f);
-    porArea[a.area] = (porArea[a.area] || 0) + 1;
-  }
-  const manifesto = { nome, descricao: String(descricao).trim(), stack: stk, areas: Object.entries(porArea).map(([areaId, arquivosN]) => ({ id: areaId, arquivos: arquivosN })), origem: String(nomeProjeto || ''), criadoEm: new Date().toISOString(), arquivos: arquivos.length };
-  fs.writeFileSync(path.join(destino, 'manifest.json'), JSON.stringify(manifesto, null, 2));
-  return { id, ...manifesto };
+export function lerDoc(id, dir = DIR_CATALOGO) {
+  const r = resolverId(id, dir); if (!r) throw new Error('documento inválido');
+  let txt; try { txt = fs.readFileSync(r.abs, 'utf8'); } catch { throw new Error('documento não encontrado'); }
+  return { id, titulo: titulo(txt, r.rel), area: r.area, areaNome: AREAS[r.area], conteudo: txt };
 }
 
-export function excluir(id, dir = DIR_CATALOGO) {
-  if (!ID.test(String(id))) throw new Error('modelo inválido');
-  const alvo = path.resolve(dir, id);
-  if (path.dirname(alvo) !== path.resolve(dir) || !fs.existsSync(path.join(alvo, 'manifest.json'))) throw new Error('modelo não encontrado');
+// ---------- publicar (projeto -> biblioteca) ----------
+// Documentos deste projeto que podem ser publicados, por área (docs/<área>/**/*.md; relatórios de auditoria ficam de fora).
+export function docsDoProjeto(raiz) {
+  return AREAS_REAPROVEITAVEIS.map((area) => ({
+    area, nome: AREAS[area],
+    arquivos: mdsEm(path.join(raiz, 'docs', area)).filter((rel) => !/(^|\/)audit/i.test(rel)).map((rel) => ({ rel, titulo: titulo(lerTexto(path.join(raiz, 'docs', area, ...rel.split('/'))), rel.replace(/\.md$/i, '')) })),
+  })).filter((a) => a.arquivos.length);
+}
+
+// arquivos: ["backend/architecture.md", ...] relativos a docs/. Copia para catalogo/<coleção>/. Republicar sobrescreve os mesmos arquivos.
+export function publicar({ raizProjeto, colecao, nome, arquivos }, dir = DIR_CATALOGO) {
+  if (!COL.test(String(colecao))) throw new Error('projeto inválido');
+  const lista = [...new Set((arquivos || []).map(String))];
+  if (!lista.length) throw new Error('escolha pelo menos um documento');
+  if (lista.length > MAX_DOCS) throw new Error(`no máximo ${MAX_DOCS} documentos por vez`);
+  const copias = []; let total = 0;
+  for (const a of lista) {
+    const p = a.split('/');
+    if (p.length < 2 || !AREAS[p[0]] || !p.slice(1).every((s) => SEG.test(s)) || !p[p.length - 1].toLowerCase().endsWith('.md') || /(^|\/)audit/i.test(a)) throw new Error(`“${a}” não pode entrar na biblioteca (só documentação técnica das áreas ${AREAS_REAPROVEITAVEIS.join(', ')})`);
+    const origem = path.resolve(raizProjeto, 'docs', ...p);
+    if (!origem.startsWith(path.resolve(raizProjeto, 'docs', p[0]) + path.sep)) throw new Error(`“${a}” é inválido`);
+    let st; try { st = fs.statSync(origem); } catch { throw new Error(`“${a}” não existe em docs/`); }
+    if (!st.isFile() || st.size > MAX_ARQ) throw new Error(`“${a}” é grande demais ou não é um arquivo (máx. 300 KB)`);
+    total += st.size; if (total > MAX_TOTAL) throw new Error('seleção grande demais (máx. 3 MB)');
+    copias.push({ p, origem });
+  }
+  const raizCol = path.join(dir, colecao);
+  for (const c of copias) { const f = path.join(raizCol, ...c.p); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.copyFileSync(c.origem, f); }
+  let m = {}; try { m = JSON.parse(fs.readFileSync(path.join(raizCol, 'manifest.json'), 'utf8')); } catch {}
+  fs.writeFileSync(path.join(raizCol, 'manifest.json'), JSON.stringify({ nome: String(nome || colecao), publicadoEm: m.publicadoEm || new Date().toISOString(), atualizadoEm: new Date().toISOString() }, null, 2));
+  return { colecao, publicados: copias.length };
+}
+
+// ---------- remover ----------
+export function removerDoc(id, dir = DIR_CATALOGO) {
+  const r = resolverId(id, dir); if (!r || !fs.existsSync(r.abs)) throw new Error('documento não encontrado');
+  fs.rmSync(r.abs, { force: true });
+}
+export function removerColecao(colecao, dir = DIR_CATALOGO) {
+  if (!COL.test(String(colecao))) throw new Error('coleção inválida');
+  const alvo = path.resolve(dir, colecao);
+  if (path.dirname(alvo) !== path.resolve(dir) || !fs.existsSync(alvo)) throw new Error('coleção não encontrada');
   fs.rmSync(alvo, { recursive: true, force: true });
+}
+
+// ---------- anexar (biblioteca -> projeto) ----------
+const AVISO = (origem) => `> Documento de referência copiado da biblioteca (origem: ${origem}). Revise: pode citar nomes, regras e valores de outro projeto. Apague este aviso depois de adaptar.\n\n`;
+// Copia os documentos para docs/<área>/ do projeto. NUNCA sobrescreve: se o arquivo já existe, grava com o nome da origem no final.
+export function copiarParaProjeto({ raiz, ids }, dir = DIR_CATALOGO) {
+  const nomes = Object.fromEntries(listarColecoes(dir).map((c) => [c.id, c.nome]));
+  const criados = [], renomeados = [];
+  for (const id of [...new Set(ids || [])]) {
+    const r = resolverId(id, dir); if (!r || !fs.existsSync(r.abs)) throw new Error(`documento não encontrado: ${id}`);
+    const destRel = r.rel.split('/'); const nomeArq = destRel.pop();
+    let destino = path.join(raiz, 'docs', r.area, ...destRel, nomeArq), final = [r.area, ...destRel, nomeArq].join('/');
+    if (fs.existsSync(destino)) {
+      const novo = `${nomeArq.replace(/\.md$/i, '')}-${r.colecao}.md`;
+      destino = path.join(raiz, 'docs', r.area, ...destRel, novo); const nf = [r.area, ...destRel, novo].join('/');
+      if (fs.existsSync(destino)) { renomeados.push({ de: final, para: nf, ja: true }); continue; }
+      renomeados.push({ de: final, para: nf }); final = nf;
+    } else criados.push(final);
+    fs.mkdirSync(path.dirname(destino), { recursive: true });
+    fs.writeFileSync(destino, AVISO(nomes[r.colecao] || r.colecao) + fs.readFileSync(r.abs, 'utf8'));
+  }
+  return { criados, renomeados };
+}
+
+// Pastas (área de uma coleção) que o Claude precisa ler para adaptar os documentos escolhidos.
+export function pastasDeLeitura(ids, dir = DIR_CATALOGO) {
+  return [...new Set((ids || []).map((id) => resolverId(id, dir)).filter(Boolean).map((r) => path.join(dir, r.colecao, r.area)))];
 }

@@ -111,6 +111,7 @@ const NAV = [
   ['chat', 'Conversar com Claude', 'pi-sparkles'],
   ['arquivos', 'Docs e planejamentos', 'pi-folder-open'],
   ['documentacao', 'Documentação', 'pi-book'],
+  ['biblioteca', 'Biblioteca de documentos', 'pi-bookmark'],
   ['permissoes', 'Permissões do Claude', 'pi-shield'],
 ];
 function navCount(id) {
@@ -403,6 +404,7 @@ function render() {
   if (r === 'chat') { if (!v.querySelector('.chat-layout')) { v.innerHTML = viewChat(); S.chatKey = null; } if (!S.sel && (S.chats[0])) S.sel = { kind: 'chat', id: S.chats[0].id }; updateChat(); if (S.sel?.kind === 'term' && !S.tx[S.sel.id]) openTerm(S.sel.id); return; }
   if (r !== 'documentacao' && S.docTimer) { clearInterval(S.docTimer); S.docTimer = null; }
   if (r === 'documentacao') { if (!v.querySelector('.doc-page')) { v.innerHTML = '<div class="doc-page" id="doc-root"><div class="note">Carregando…</div></div>'; loadDocumentacao(); } return; }
+  if (r === 'biblioteca') { if (!v.querySelector('.bib-page')) { v.innerHTML = '<div class="bib-page" id="bib-root"><div class="note">Carregando…</div></div>'; loadBiblioteca(); } return; }
   if (r === 'permissoes') { if (!v.querySelector('.perm-page')) { v.innerHTML = '<div class="perm-page" id="perm-root"><div class="note">Carregando…</div></div>'; loadPermissoes(); } return; }
   v.innerHTML = r === 'pendencias' ? viewPend() : r === 'sessoes' ? viewSess() : r === 'arquivos' ? viewArq() : viewVisao();
   if (S.focus && r === 'pendencias') document.querySelector(`[data-id="${S.focus}"].item`)?.scrollIntoView({ block: 'center' });
@@ -445,20 +447,45 @@ document.addEventListener('click', async (e) => {
       }
       case 'revogar-sessao': await api('/api/aprovacao/sessao', { id: d.id }); toast('Aprovação automática desligada.'); await loadChats(); S.chatKey = null; updateChat(); break;
       case 'doc-iniciar': {
-        const modelo = $('#doc-modelo')?.value || 'sonnet', modelos = [...document.querySelectorAll('.mod-check:checked')].map((x) => x.value);
+        const modelo = $('#doc-modelo')?.value || 'sonnet';
+        
         el.disabled = true;
-        try { const c = await api('/api/documentacao/iniciar', { modo: d.modo, modelo, modelos }); toast('Documentação iniciada. Acompanhe por aqui.'); location.hash = `#/chat?s=${c.id}`; }
+        try { const c = await api('/api/documentacao/iniciar', { modo: d.modo, modelo }); toast('Documentação iniciada. Acompanhe por aqui.'); location.hash = `#/chat?s=${c.id}`; }
         catch (x) { toast(x.message); el.disabled = false; }
         break;
       }
-      case 'cat-salvar': {
-        const areas = [...document.querySelectorAll('.cat-area:checked')].map((x) => x.value), stack = [...document.querySelectorAll('.cat-stack:checked')].map((x) => x.value);
-        el.disabled = true;
-        try { await api('/api/catalogo/salvar', { nome: $('#cat-nome').value, descricao: $('#cat-desc').value, areas, stack }); S.docLimpar = true; toast('Modelo salvo no catálogo. Já pode ser usado em outros projetos.'); await loadDocumentacao(true); }
-        catch (x) { toast(x.message); }
-        el.disabled = false; break;
+      case 'bib-area': S.bib.area = d.a || ''; renderBiblioteca(); break;
+      case 'bib-ver': {
+        try { const x = await api('/api/biblioteca/doc?id=' + encodeURIComponent(d.id)); $('#dt').textContent = `${x.areaNome} · ${x.titulo}`; $('#dc').innerHTML = md(x.conteudo); $('#dlg').showModal(); } catch (e) { toast(e.message); }
+        break;
       }
-      case 'cat-excluir': { if (confirm('Excluir este modelo do catálogo? Os projetos que já foram documentados com ele não mudam.')) { try { await api('/api/catalogo/excluir', { id: d.id }); toast('Modelo excluído.'); await loadDocumentacao(true); } catch (x) { toast(x.message); } } break; }
+      case 'bib-limpar': S.bib.sel.clear(); renderBiblioteca(); break;
+      case 'bib-anexar': abrirAnexar(); break;
+      case 'bib-anexar-ok': {
+        const modo = document.querySelector('input[name="bib-modo"]:checked')?.value || 'adaptar', ids = [...S.bib.sel];
+        el.disabled = true;
+        try {
+          const r = await api('/api/biblioteca/anexar', { ids, modo, modelo: $('#bib-modelo')?.value || 'sonnet' });
+          if (modo === 'adaptar') { $('#bdlg').close(); S.bib.sel.clear(); toast('O Claude começou a adaptar. Acompanhe por aqui.'); location.hash = `#/chat?s=${r.id}`; break; }
+          S.bib.sel.clear();
+          $('#bdlg').innerHTML = `<div class="ahd"><span class="aic"><i class="pi pi-check-circle"></i></span><div class="att"><b id="bdlg-t">Documentos anexados</b><span class="asub">Cópias criadas em docs/ do projeto.</span></div></div>
+            <div class="abd"><ul class="perm-list">${r.criados.map((x) => `<li><b>docs/${esc(x)}</b><span class="muted small">novo</span></li>`).join('')}${r.renomeados.map((x) => `<li><b>docs/${esc(x.para)}</b><span class="muted small">${x.ja ? 'já existia (nada foi alterado)' : `já havia docs/${esc(x.de)}; a cópia ganhou outro nome`}</span></li>`).join('')}</ul>
+            <p class="muted small">Cada cópia começa com um aviso de que veio de outro projeto. Revise e ajuste (ou use “Copiar e adaptar com o Claude”) antes de tratá-la como a documentação deste projeto.</p></div>
+            <div class="aft"><span class="sp"></span><button class="btn" data-act="bib-fechar">Fechar</button><a class="btn primary" href="#/documentacao" data-act="bib-fechar"><i class="pi pi-book"></i> Ver a documentação</a></div>`;
+          loadBiblioteca(true); // atualiza "meus documentos" (as cópias novas já existem em docs/)
+        } catch (x) { toast(x.message); el.disabled = false; }
+        break;
+      }
+      case 'bib-fechar': $('#bdlg').close(); break;
+      case 'bib-pub': abrirPublicar(); break;
+      case 'bib-pub-ok': {
+        const arquivos = [...document.querySelectorAll('.pub-doc:checked')].map((x) => x.value);
+        el.disabled = true;
+        try { const r = await api('/api/biblioteca/publicar', { arquivos }); $('#bdlg').close(); toast(`${r.publicados} documento${r.publicados === 1 ? '' : 's'} publicado${r.publicados === 1 ? '' : 's'} na biblioteca.`); await loadBiblioteca(); }
+        catch (x) { toast(x.message); el.disabled = false; }
+        break;
+      }
+      case 'bib-col-del': { if (confirm(`Remover “${d.nome}” da biblioteca? Os projetos que já usaram esses documentos não mudam.`)) { try { await api('/api/biblioteca/remover', { colecao: d.id }); toast('Removido da biblioteca.'); await loadBiblioteca(); } catch (x) { toast(x.message); } } break; }
       case 'perm-pacote': { try { await api('/api/permissoes/pacote', { id: d.id, ligado: el.checked }); toast(el.checked ? 'Pacote ligado.' : 'Pacote desligado.'); } catch (x) { toast(x.message); } await loadPermissoes(); break; }
       case 'perm-esquecer': { const c = S.perm.lembrados[Number(d.i)]?.comando; if (c && confirm('Remover esta permissão? Da próxima vez o Claude vai perguntar de novo.')) { await api('/api/permissoes/esquecer', { comando: c }); toast('Permissão removida.'); await loadPermissoes(); } break; }
       case 'perm-add': {
@@ -491,58 +518,109 @@ document.addEventListener('click', async (e) => {
     }
   } catch (x) { toast(x.message); }
 });
+document.addEventListener('input', (e) => { // busca da biblioteca (com atraso curto para não consultar a cada tecla)
+  if (e.target.id !== 'bib-q' || !S.bib) return;
+  clearTimeout(S.bibT); S.bibT = setTimeout(() => { S.bib.q = e.target.value; loadBiblioteca(true); }, 250);
+});
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.classList?.contains('bib-sel') && S.bib) { if (t.checked) S.bib.sel.add(t.value); else S.bib.sel.delete(t.value); renderBiblioteca(); return; }
+  if (t.id === 'bib-col' && S.bib) { S.bib.col = t.value; renderBiblioteca(); return; }
+  if (t.name === 'bib-modo') { const m = $('#bib-modelo-box'); if (m) m.hidden = t.value !== 'adaptar'; return; }
+  if (t.classList?.contains('pub-area')) { document.querySelectorAll(`.pub-doc[data-area="${t.value}"]`).forEach((x) => { x.checked = t.checked; }); }
+});
 document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'perm-cmd') { e.preventDefault(); document.querySelector('[data-act="perm-test"]').click(); } });
 async function loadDocumentacao(silencioso) {
-  try { const g = await api('/api/documentacao'); S.doc = { ...g, modelo: S.doc?.modelo || 'sonnet' }; }
+  try { const g = await api('/api/documentacao'); S.doc = { ...g, modelo: $('#doc-modelo')?.value || S.doc?.modelo || 'sonnet' }; }
   catch (x) { if (!silencioso) { const r = $('#doc-root'); if (r) r.innerHTML = `<div class="note">Não consegui carregar: ${esc(x.message)}</div>`; } return; }
   renderDocumentacao();
-  // atualiza sozinho só enquanto a documentação está sendo gerada (não atrapalha quem está preenchendo o formulário)
+  // atualiza sozinho só enquanto a documentação está sendo gerada
   if (S.docTimer && !S.doc.job?.rodando) { clearInterval(S.docTimer); S.docTimer = null; }
   if (!S.docTimer && S.doc.job?.rodando) S.docTimer = setInterval(() => { if (route() !== 'documentacao') { clearInterval(S.docTimer); S.docTimer = null; return; } loadDocumentacao(true); }, 4000);
 }
-function guardarFormDoc() { // preserva o que a pessoa já marcou/digitou ao redesenhar a tela
-  if (!$('#doc-root')) return;
-  if (S.docLimpar) { S.docLimpar = false; S.docForm = null; return; } // depois de salvar um modelo, o formulário volta ao início
-  S.docForm = { modelo: $('#doc-modelo')?.value, nome: $('#cat-nome')?.value, desc: $('#cat-desc')?.value,
-    modelos: [...document.querySelectorAll('.mod-check')].map((x) => [x.value, x.checked]), areas: [...document.querySelectorAll('.cat-area')].map((x) => [x.value, x.checked]), stack: [...document.querySelectorAll('.cat-stack')].map((x) => [x.value, x.checked]) };
-}
 function renderDocumentacao() {
   const root = $('#doc-root'); if (!root || !S.doc) return;
-  guardarFormDoc();
-  const D = S.doc, F = S.docForm || {}, rodando = D.job?.rodando;
-  const marcado = (lista, v, padrao) => { const x = (lista || []).find((y) => y[0] === v); return x ? x[1] : padrao; };
+  const D = S.doc, rodando = D.job?.rodando, vazio = D.total === 0;
   const ok = (b) => `<i class="pi ${b ? 'pi-check-circle doc-ok' : 'pi-circle doc-no'}"></i>`;
-  const vazio = D.total === 0;
-  const chips = (l) => (l || []).map((s) => `<span class="lv lv-ok">${esc(s.nome)}</span>`).join(' ');
-  const comAreas = D.areas.filter((a) => a.arquivos && D.areasReaproveitaveis.includes(a.id));
   root.innerHTML = `<div class="page-head"><div><h1 class="page-title">Documentação do projeto</h1>
-    <p class="page-sub">O Claude lê o código do projeto e monta a documentação oficial (<b>docs/</b>) num padrão organizado por área: backend, frontend, regras de negócio, dados, infraestrutura, deploy e segurança, só com as áreas que o projeto realmente tem. Se você já documentou um projeto com a mesma stack, pode partir dos modelos do catálogo.</p></div></div>
-  ${rodando ? `<div class="card doc-run"><div class="card-head"><span class="ico"><i class="pi pi-spin pi-spinner"></i></span><h3>Documentação em andamento</h3><a class="link" href="#/chat?s=${D.job.chatId}">Ver a conversa</a></div><div class="card-body"><p class="muted small">Pode levar vários minutos. Os arquivos novos aparecem abaixo conforme são criados. Você pode sair desta tela: ela continua.</p></div></div>` : D.job ? `<div class="card"><div class="card-head"><span class="ico"><i class="pi pi-history"></i></span><h3>Última execução</h3><a class="link" href="#/chat?s=${D.job.chatId}">Ver a conversa e o resumo</a></div></div>` : ''}
+    <p class="page-sub">O Claude lê o código e escreve a documentação oficial (<b>docs/</b>), organizada por área. Só cria as áreas que o projeto realmente tem.</p></div></div>
+  ${rodando ? `<div class="card doc-run"><div class="card-head"><span class="ico"><i class="pi pi-spin pi-spinner"></i></span><h3>Documentação em andamento</h3><a class="link" href="#/chat?s=${D.job.chatId}">Ver a conversa</a></div><div class="card-body"><p class="muted small">Pode levar vários minutos. Os arquivos novos aparecem abaixo. Você pode sair desta tela: ela continua.</p></div></div>` : D.job ? `<div class="card"><div class="card-head"><span class="ico"><i class="pi pi-history"></i></span><h3>Última execução</h3><a class="link" href="#/chat?s=${D.job.chatId}">Ver a conversa e o resumo</a></div></div>` : ''}
   <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-th-large"></i></span><h3>Como está hoje</h3><span class="muted small">${D.total} documento${D.total === 1 ? '' : 's'} em docs/</span></div><div class="card-body">
-    <p class="doc-stack"><b>Stack identificada:</b> ${D.stack.length ? chips(D.stack) : '<span class="muted">nenhuma ainda (a pasta não tem código reconhecível)</span>'}</p>
     <div class="doc-grid">${D.areas.map((a) => `<div class="doc-area ${a.arquivos ? 'on' : ''}">${ok(a.arquivos)}<b>${esc(a.nome)}</b><span class="muted small">${a.arquivos ? `${a.arquivos} documento${a.arquivos === 1 ? '' : 's'}` : 'ainda não existe'}</span></div>`).join('')}</div>
-    <ul class="doc-geral"><li>${ok(D.geral.docsReadme)} <b>docs/README.md</b> índice geral</li><li>${ok(D.geral.claudeMd)} <b>CLAUDE.md</b> instruções para o Claude trabalhar no projeto</li><li>${ok(D.geral.planning)} <b>planning/</b> planos ainda não fechados</li><li>${ok(D.geral.pendencias)} <b>pendencias/</b> o seu painel (é daqui que a Central lê as pendências)</li></ul>
-    ${D.pastas.length ? `<p class="muted small">Pastas encontradas no projeto: ${D.pastas.map((p) => `<code>${esc(p)}</code>`).join(' ')}</p>` : '<p class="muted small">A pasta do projeto ainda está vazia. Quando houver código, volte aqui.</p>'}</div></div>
+    <ul class="doc-geral"><li>${ok(D.geral.docsReadme)} <b>docs/README.md</b> índice geral</li><li>${ok(D.geral.claudeMd)} <b>CLAUDE.md</b> instruções para o Claude trabalhar no projeto</li><li>${ok(D.geral.planning)} <b>planning/</b> planos ainda não fechados</li><li>${ok(D.geral.pendencias)} <b>pendencias/</b> o seu painel (é daqui que a Central lê as pendências)</li></ul></div></div>
   <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-sparkles"></i></span><h3>${vazio ? 'Montar a documentação' : 'Montar ou atualizar'}</h3></div><div class="card-body">
-    <ul class="doc-bul"><li><b>O que ele faz:</b> lê o projeto, escreve os documentos em português e confere cada afirmação no código. O que não conseguir confirmar vai para <b>pendencias/</b>, nunca para docs/.</li>
-      <li><b>O que ele não faz:</b> não mexe no código, não usa terminal e não lê senhas (.env, chaves). Só escreve em <code>docs/</code>, <code>planning/</code>, <code>pendencias/</code> e <code>CLAUDE.md</code>.</li>
-      <li><b>Segurança:</b> arquivos <b>novos</b> são criados direto. Se precisar alterar um arquivo que já existe, ele pede a sua aprovação antes.</li>
-      <li><b>Tempo e uso:</b> costuma levar de 5 a 30 minutos, conforme o tamanho do projeto, e usa a sua assinatura do Claude.</li></ul>
-    ${D.catalogo.length ? `<div class="doc-modelos"><b>Partir de modelos do catálogo</b> <span class="muted small">(opcional: de outros projetos; o Claude só aproveita a estrutura e os padrões da stack e confere tudo neste projeto)</span>
-      ${D.catalogo.map((m) => `<label class="doc-mod"><input type="checkbox" class="mod-check" value="${esc(m.id)}" ${marcado(F.modelos, m.id, vazio && m.compat > 0) ? 'checked' : ''}><span><b>${esc(m.nome)}</b> ${m.compat ? '<span class="lv lv-ok">mesma stack</span>' : ''}<span class="muted small">${chips(m.stack)} · ${m.areas.map((a) => a.id).join(', ')} · de ${esc(m.origem || '—')}</span></span></label>`).join('')}</div>` : ''}
-    <div class="doc-acoes"><label>Modelo de IA <select id="doc-modelo" class="sel sm"><option value="sonnet" ${(F.modelo || D.modelo) === 'sonnet' ? 'selected' : ''}>Sonnet (padrão, mais rápido)</option><option value="opus" ${F.modelo === 'opus' ? 'selected' : ''}>Opus (mais caprichado, usa mais)</option><option value="haiku" ${F.modelo === 'haiku' ? 'selected' : ''}>Haiku (rápido e simples)</option></select></label>
+    <p class="small">${vazio ? 'O Claude lê o projeto, escreve os documentos em português e confere cada afirmação no código.' : '<b>Criar o que falta</b> escreve só o que ainda não existe. <b>Conferir com o código</b> compara cada documento com o código e corrige o que está desatualizado.'} O que ele não conseguir confirmar vai para <b>pendencias/</b>.</p>
+    <details class="doc-det"><summary>O que ele pode e não pode fazer</summary><ul class="doc-bul">
+      <li><b>Não mexe no código</b>, não usa terminal e não lê senhas (.env, chaves). Só escreve em <code>docs/</code>, <code>planning/</code>, <code>pendencias/</code> e <code>CLAUDE.md</code>.</li>
+      <li><b>Arquivos novos</b> são criados direto. Para <b>alterar um arquivo que já existe</b>, ele pede a sua aprovação.</li>
+      <li><b>Tempo e uso:</b> de 5 a 30 minutos, conforme o tamanho do projeto, usando a sua assinatura do Claude.</li></ul></details>
+    <div class="doc-acoes"><label>Modelo de IA <select id="doc-modelo" class="sel sm"><option value="sonnet" ${D.modelo === 'sonnet' ? 'selected' : ''}>Sonnet (padrão, mais rápido)</option><option value="opus" ${D.modelo === 'opus' ? 'selected' : ''}>Opus (mais caprichado, usa mais)</option><option value="haiku" ${D.modelo === 'haiku' ? 'selected' : ''}>Haiku (rápido e simples)</option></select></label>
       <span class="sp"></span>
       <button class="btn ${vazio ? 'primary' : ''}" data-act="doc-iniciar" data-modo="criar" ${rodando ? 'disabled' : ''}><i class="pi pi-plus"></i> ${vazio ? 'Montar a documentação' : 'Criar o que falta'}</button>
       ${vazio ? '' : `<button class="btn primary" data-act="doc-iniciar" data-modo="atualizar" ${rodando ? 'disabled' : ''}><i class="pi pi-refresh"></i> Conferir com o código e atualizar</button>`}</div></div></div>
-  <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-bookmark"></i></span><h3>Catálogo de modelos</h3><span class="muted small">${D.catalogo.length}</span></div><div class="card-body">
-    <p class="muted small">Modelos são cópias da documentação <b>técnica</b> de um projeto (backend, frontend, infra, segurança...) para reaproveitar em outros projetos da mesma stack. Regras de negócio, planejamento e pendências nunca entram, porque são específicas de cada produto. Ficam só no seu computador.</p>
-    ${D.catalogo.length ? `<ul class="perm-list">${D.catalogo.map((m) => `<li><span class="top"><b>${esc(m.nome)}</b>${chips(m.stack)}</span>${m.descricao ? `<span class="muted small">${esc(m.descricao)}</span>` : ''}<span class="muted small">${m.arquivos} documentos · áreas: ${m.areas.map((a) => `${a.id} (${a.arquivos})`).join(', ')} · de ${esc(m.origem || '—')} · ${quando(m.criadoEm)}</span><button class="btn sm" data-act="cat-excluir" data-id="${esc(m.id)}"><i class="pi pi-trash"></i> Excluir modelo</button></li>`).join('')}</ul>` : '<div class="muted small">Nenhum modelo ainda. Quando este projeto tiver documentação, salve-a aqui embaixo para reaproveitar em outros.</div>'}
-    <div class="perm-sub"><h4>Salvar a documentação deste projeto como modelo</h4>
-      ${comAreas.length ? `<div class="cat-form"><input class="inp" id="cat-nome" maxlength="60" placeholder="Nome do modelo (ex.: API .NET + Angular)" value="${esc(F.nome ?? '')}" aria-label="Nome do modelo"><input class="inp" id="cat-desc" maxlength="200" placeholder="Descrição (opcional)" value="${esc(F.desc ?? '')}" aria-label="Descrição">
-        <div class="cat-opts"><span class="muted small">Áreas:</span>${comAreas.map((a) => `<label class="cat-chk"><input type="checkbox" class="cat-area" value="${a.id}" ${marcado(F.areas, a.id, true) ? 'checked' : ''}> ${esc(a.nome)} (${a.arquivos})</label>`).join('')}</div>
-        <div class="cat-opts"><span class="muted small">Stack do modelo:</span>${D.stack.length ? D.stack.map((s) => `<label class="cat-chk"><input type="checkbox" class="cat-stack" value="${s.id}" ${marcado(F.stack, s.id, true) ? 'checked' : ''}> ${esc(s.nome)}</label>`).join('') : '<span class="muted small">não identificada</span>'}</div>
-        <button class="btn primary" data-act="cat-salvar"><i class="pi pi-save"></i> Salvar no catálogo</button></div>` : '<div class="muted small">Ainda não há documentação técnica neste projeto para salvar. Monte-a acima primeiro.</div>'}</div></div></div>
-  ${D.recentes.length ? `<div class="card"><div class="card-head"><span class="ico"><i class="pi pi-file"></i></span><h3>Arquivos mexidos recentemente</h3></div><div class="card-body"><ul class="doc-rec">${D.recentes.map((f) => `<li><a class="link" data-act="file" data-p="${esc(f.path)}">${esc(f.path)}</a><span class="muted small">${ago(f.mtime)}</span></li>`).join('')}</ul></div></div>` : ''}`;
+  <a class="card doc-lib" href="#/biblioteca"><span class="ico"><i class="pi pi-bookmark"></i></span><div><b>Quer um ponto de partida?</b><span class="muted small">Na <b>Biblioteca de documentos</b> você busca documentos prontos por área (backend, frontend, infra, segurança...), vê o conteúdo e anexa a este projeto.</span></div><i class="pi pi-angle-right"></i></a>
+  ${D.recentes.length ? `<div class="card"><div class="card-head"><span class="ico"><i class="pi pi-file"></i></span><h3>Arquivos mexidos recentemente</h3></div><div class="card-body"><ul class="doc-rec">${D.recentes.slice(0, 8).map((f) => `<li><a class="link" data-act="file" data-p="${esc(f.path)}">${esc(f.path)}</a><span class="muted small">${ago(f.mtime)}</span></li>`).join('')}</ul></div></div>` : ''}`;
+}
+
+// ---------- Biblioteca de documentos ----------
+async function loadBiblioteca(soLista) {
+  const q = S.bib?.q || '';
+  try { const g = await api('/api/biblioteca?q=' + encodeURIComponent(q)); S.bib = { ...g, q, area: S.bib?.area || '', col: S.bib?.col || '', sel: S.bib?.sel || new Set() }; }
+  catch (x) { const r = $('#bib-root'); if (r && !soLista) r.innerHTML = `<div class="note">Não consegui carregar: ${esc(x.message)}</div>`; return; }
+  for (const id of [...S.bib.sel]) if (!S.bib.docs.some((d) => d.id === id) && !q) S.bib.sel.delete(id); // some da biblioteca -> sai da seleção
+  renderBiblioteca(!soLista);
+}
+function renderBiblioteca(forcar) {
+  const root = $('#bib-root'); if (!root || !S.bib) return;
+  const B = S.bib;
+  const visiveis = B.docs.filter((d) => (!B.area || d.area === B.area) && (!B.col || d.colecao === B.col));
+  const totalGeral = B.areas.reduce((n, a) => n + a.total, 0);
+  if (forcar || !$('#bib-list')) {
+    root.innerHTML = `<div class="page-head"><div><h1 class="page-title">Biblioteca de documentos</h1>
+      <p class="page-sub">Documentos técnicos prontos, vindos dos seus outros projetos. Busque por área ou assunto, veja o conteúdo e <b>anexe a este projeto</b>.</p></div>
+      <button class="btn" data-act="bib-pub"><i class="pi pi-upload"></i> Publicar documentos deste projeto</button></div>
+    <div class="card bib-tools"><div class="card-body">
+      <div class="bib-search"><i class="pi pi-search"></i><input id="bib-q" class="inp" placeholder="Buscar por assunto (ex.: autenticação, rotas, docker, segurança)" value="${esc(B.q)}" autocomplete="off" aria-label="Buscar documentos"></div>
+      <div class="bib-chips" id="bib-chips"></div>
+      ${B.colecoes.length > 1 ? `<label class="bib-col">Projeto de origem <select id="bib-col" class="sel sm"><option value="">Todos</option>${B.colecoes.map((c) => `<option value="${esc(c.id)}" ${B.col === c.id ? 'selected' : ''}>${esc(c.nome)} (${c.total})</option>`).join('')}</select></label>` : ''}
+    </div></div>
+    <div id="bib-list"></div>
+    <div class="bib-bar" id="bib-bar" hidden></div>
+    <div id="bib-cols"></div>`;
+  }
+  $('#bib-chips').innerHTML = `<button class="chipbtn ${B.area ? '' : 'on'}" data-act="bib-area" data-a="">Todas as áreas <span>${B.q ? B.docs.length : totalGeral}</span></button>` +
+    B.areas.filter((a) => a.total).map((a) => `<button class="chipbtn ${B.area === a.id ? 'on' : ''}" data-act="bib-area" data-a="${a.id}">${esc(a.nome)} <span>${B.docs.filter((d) => d.area === a.id).length}</span></button>`).join('');
+  $('#bib-list').innerHTML = !totalGeral
+    ? `<div class="card"><div class="card-body bib-vazio"><i class="pi pi-bookmark"></i><b>A biblioteca ainda está vazia</b><span class="muted">Publique a documentação técnica deste (ou de outro) projeto para reaproveitá-la em projetos novos ou já existentes.</span><button class="btn primary" data-act="bib-pub"><i class="pi pi-upload"></i> Publicar documentos deste projeto</button></div></div>`
+    : visiveis.length ? visiveis.map((d) => `<label class="bib-doc ${B.sel.has(d.id) ? 'on' : ''}"><input type="checkbox" class="bib-sel" value="${esc(d.id)}" ${B.sel.has(d.id) ? 'checked' : ''}>
+        <div class="bib-meta"><div class="top"><b>${esc(d.titulo)}</b><span class="lv lv-ok">${esc(d.areaNome)}</span></div>${d.resumo ? `<p>${esc(d.resumo)}</p>` : ''}<span class="muted small">${esc(d.colecaoNome)} · ${esc(d.arquivo)} · ${Math.max(1, Math.round(d.bytes / 1024))} KB</span></div>
+        <button type="button" class="btn sm" data-act="bib-ver" data-id="${esc(d.id)}"><i class="pi pi-eye"></i> Ver</button></label>`).join('')
+    : `<div class="card"><div class="card-body bib-vazio"><i class="pi pi-search"></i><b>Nada encontrado</b><span class="muted">Tente outras palavras ou outra área.</span></div></div>`;
+  const n = B.sel.size, bar = $('#bib-bar');
+  bar.hidden = !n;
+  bar.innerHTML = n ? `<b>${n} documento${n === 1 ? '' : 's'} selecionado${n === 1 ? '' : 's'}</b><span class="sp"></span><button class="btn" data-act="bib-limpar">Limpar seleção</button><button class="btn primary" data-act="bib-anexar"><i class="pi pi-paperclip"></i> Anexar ao projeto</button>` : '';
+  $('#bib-cols').innerHTML = B.colecoes.length ? `<details class="doc-det bib-gerir"><summary>Gerenciar o que foi publicado</summary><ul class="perm-list">${B.colecoes.map((c) => `<li><span class="top"><b>${esc(c.nome)}</b><span class="muted small">${c.total} documento${c.total === 1 ? '' : 's'}${c.publicadoEm ? ` · publicado em ${quando(c.publicadoEm)}` : ''}</span></span><button class="btn sm" data-act="bib-col-del" data-id="${esc(c.id)}" data-nome="${esc(c.nome)}"><i class="pi pi-trash"></i> Remover tudo desta origem</button></li>`).join('')}</ul></details>` : '';
+}
+function abrirAnexar() {
+  const B = S.bib, sel = B.docs.filter((d) => B.sel.has(d.id)), nome = B.projeto?.nome || 'o projeto';
+  if (!sel.length) return;
+  $('#bdlg').innerHTML = `<div class="ahd"><span class="aic"><i class="pi pi-paperclip"></i></span><div class="att"><b id="bdlg-t">Anexar ${sel.length} documento${sel.length === 1 ? '' : 's'} a ${esc(nome)}</b><span class="asub">Eles vão para a pasta <code>docs/</code> do projeto.</span></div></div>
+    <div class="abd"><ul class="bib-resumo">${sel.slice(0, 6).map((d) => `<li><b>${esc(d.titulo)}</b> <span class="muted small">${esc(d.areaNome)} · ${esc(d.colecaoNome)}</span></li>`).join('')}${sel.length > 6 ? `<li class="muted small">e mais ${sel.length - 6}…</li>` : ''}</ul>
+      <label class="bib-opt"><input type="radio" name="bib-modo" value="adaptar" checked><span><b>Copiar e adaptar com o Claude <em>(recomendado)</em></b><span class="muted small">O Claude usa os documentos como base e escreve versões que descrevem <b>este projeto</b>, conferidas no código. Leva alguns minutos e usa a sua assinatura.</span></span></label>
+      <label class="bib-opt"><input type="radio" name="bib-modo" value="copiar"><span><b>Só copiar</b><span class="muted small">Cria cópias exatas em <code>docs/</code>, na hora, com um aviso no topo. Podem citar nomes e regras do outro projeto: revise. Se já existir um documento com o mesmo nome, ele <b>não é substituído</b>: a cópia ganha o nome da origem.</span></span></label>
+      <div id="bib-modelo-box"><label class="bib-mod">Modelo de IA <select id="bib-modelo" class="sel sm"><option value="sonnet">Sonnet (padrão, mais rápido)</option><option value="opus">Opus (mais caprichado, usa mais)</option><option value="haiku">Haiku (rápido e simples)</option></select></label></div></div>
+    <div class="aft"><span class="sp"></span><button class="btn" data-act="bib-fechar">Cancelar</button><button class="btn primary" data-act="bib-anexar-ok"><i class="pi pi-check"></i> Anexar</button></div>`;
+  $('#bdlg').showModal();
+}
+function abrirPublicar() {
+  const B = S.bib, meus = B.meus || [], nome = B.projeto?.nome || 'este projeto';
+  $('#bdlg').innerHTML = `<div class="ahd"><span class="aic"><i class="pi pi-upload"></i></span><div class="att"><b id="bdlg-t">Publicar documentos de ${esc(nome)}</b><span class="asub">Ficam na biblioteca para reaproveitar em outros projetos.</span></div></div>
+    <div class="abd">${meus.length ? `<p class="muted small">Só documentação <b>técnica</b>. Regras de negócio, planejamento e pendências não entram, porque são específicos de cada produto. Se você já publicou antes, os mesmos arquivos são atualizados.</p>
+      <div class="pub-lista">${meus.map((a) => `<div class="pub-area-bloco"><label class="pub-ah"><input type="checkbox" class="pub-area" value="${a.area}" ${a.area === 'data-platform' ? '' : 'checked'}> <b>${esc(a.nome)}</b> <span class="muted small">${a.arquivos.length} documento${a.arquivos.length === 1 ? '' : 's'}${a.area === 'data-platform' ? ' (costuma ser específico do produto)' : ''}</span></label>
+        ${a.arquivos.map((f) => `<label class="pub-item"><input type="checkbox" class="pub-doc" data-area="${a.area}" value="${esc(a.area + '/' + f.rel)}" ${a.area === 'data-platform' ? '' : 'checked'}> ${esc(f.titulo)} <span class="muted small">${esc(f.rel)}</span></label>`).join('')}</div>`).join('')}</div>`
+      : '<p class="muted">Este projeto ainda não tem documentação técnica em <code>docs/</code> (backend, frontend, infra, deploy, segurança ou dados). Monte-a na aba Documentação primeiro.</p>'}</div>
+    <div class="aft"><span class="sp"></span><button class="btn" data-act="bib-fechar">Cancelar</button>${meus.length ? '<button class="btn primary" data-act="bib-pub-ok"><i class="pi pi-upload"></i> Publicar na biblioteca</button>' : ''}</div>`;
+  $('#bdlg').showModal();
 }
 const NIVEL = { leitura: ['Só consulta', 'lv-ok'], altera: ['Altera arquivos', 'lv-warn'], rede: ['Usa a internet', 'lv-warn'], servidor: ['Mexe em servidor/produção', 'lv-bad'], desconhecido: ['Não reconhecido', 'lv-warn'] };
 const chipNivel = (n) => { const [t, c] = NIVEL[n] || NIVEL.desconhecido; return `<span class="lv ${c}">${t}</span>`; };
