@@ -1,4 +1,4 @@
-# Central de Projetos: sobe o servidor local (se ainda não estiver no ar) e abre o navegador já autenticado.
+﻿# Central de Projetos: sobe o servidor local (se ainda não estiver no ar) e abre o navegador já autenticado.
 # Usado pelo atalho da área de trabalho (ver instalar-atalho.ps1). Janela oculta; logs em central.log.
 param([string]$Projeto = '')
 $ErrorActionPreference = 'Stop'

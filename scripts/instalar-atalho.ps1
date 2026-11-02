@@ -1,4 +1,4 @@
-# Cria o atalho "Central de Projetos" na área de trabalho (ícone próprio da Central).
+﻿# Cria o atalho "Central de Projetos" na área de trabalho (ícone próprio da Central).
 $ErrorActionPreference = 'Stop'
 $raiz = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '..')).Path
 Add-Type -AssemblyName System.Drawing
