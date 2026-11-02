@@ -10,7 +10,7 @@ Ferramenta local de trabalho do dono: escolha um projeto (tela de seleção esti
 3. Crie o atalho: `powershell -ExecutionPolicy Bypass -File scripts\instalar-atalho.ps1`. Aparece o ícone **Central de Projetos** na área de trabalho (ou use `iniciar.cmd` e abra http://localhost:4777/).
 4. Clique no atalho. Na primeira vez a tela mostra só o tile **+**: clique nele (ou tecle `N`) e cadastre o projeto: nome, pasta (caminho completo de uma pasta que já existe), cor e, se quiser, **Criar estrutura base** (`pendencias/`, `docs/`, `planning/`, `CLAUDE.md`; nunca sobrescreve nada).
 5. Abra o projeto: o painel mostra as pendências (uma de exemplo para apagar), as sessões do Claude Code e as conversas. Escreva suas pendências em `pendencias/README.md` do projeto e **não apague esse arquivo**: é a fonte de dados da Central.
-6. Logo no tile (opcional): coloque as imagens em `logos/` e aponte `icone` (quadrado) e `logo` (largo) no `projetos.json`. Sem isso o tile mostra as iniciais do projeto.
+6. Logo (opcional): no próprio formulário, escolha o **ícone** (quadrado, aparece no tile) e o **logo largo** (aparece no menu lateral do painel). PNG, JPG ou WEBP até 1,5 MB; SVG não é aceito. Sem imagem, o tile mostra as iniciais do projeto. Também dá para colocar arquivos em `logos/` e apontar `icone`/`logo` no `projetos.json`. O atalho `http://localhost:4777/#novo` abre direto o cadastro.
 
 **Problemas comuns:** `No suitable shell found` = o Claude Code não achou o Git Bash; defina `CLAUDE_CODE_GIT_BASH_PATH` (o `verificar.ps1` mostra o caminho) em `~\.claude\settings.json`, chave `env`, e reinicie. O `bash` do WSL em `System32` não serve.
 

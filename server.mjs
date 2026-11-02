@@ -272,12 +272,12 @@ function send(res, code, body, type = 'application/json; charset=utf-8', nonce =
   });
   res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
 }
-function readBody(req) {
+function readBody(req, max = MAX_BODY) {
   return new Promise((resolve, reject) => {
     let size = 0; const chunks = [];
     req.on('data', (c) => {
       size += c.length;
-      if (size > MAX_BODY) { reject(new Error('corpo grande demais')); req.destroy(); return; }
+      if (size > max) { reject(new Error('corpo grande demais')); req.destroy(); return; }
       chunks.push(c);
     });
     req.on('end', () => { try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')); } catch (e) { reject(e); } });
@@ -400,11 +400,11 @@ async function core(req, res, url) {
     }
     if (req.method !== 'POST') return send(res, 405, { erro: 'método' });
     if (!/^application\/json/.test(req.headers['content-type'] || '')) return send(res, 415, { erro: 'use JSON' });
-    const body = await readBody(req);
+    const body = await readBody(req, url.pathname === '/api/projetos' ? 4_500_000 : MAX_BODY); // cadastro de projeto aceita imagens (até 1,5 MB cada)
 
     switch (url.pathname) {
       case '/api/projetos': { // cadastrar projeto (opcionalmente cria a estrutura base padrão Datadubis, sem sobrescrever nada)
-        try { const r = projetos.adicionar({ nome: body.nome, raiz: body.raiz, cor: body.cor, estruturaBase: body.estruturaBase === true }); return send(res, 200, r); }
+        try { const r = projetos.adicionar({ nome: body.nome, raiz: body.raiz, cor: body.cor, estruturaBase: body.estruturaBase === true, icone: body.icone, logo: body.logo }); return send(res, 200, r); }
         catch (e) { return send(res, 400, { erro: e.message }); }
       }
       case '/api/estado': {

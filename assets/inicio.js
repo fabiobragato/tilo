@@ -41,13 +41,31 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ---------- novo projeto ----------
-function novo() { $('#novo-form').reset(); $('#n-err').hidden = true; $('#novo').showModal(); $('#n-nome').focus(); }
+const IMG = { icone: '', logo: '' }; // data URLs escolhidas no formulário
+const MAX_IMG = 1_500_000;
+function limparImagens() {
+  IMG.icone = IMG.logo = '';
+  for (const k of ['icone', 'logo']) { $(`#p-${k}`).innerHTML = '<i class="pi pi-image"></i>'; $(`#d-${k} .t`).textContent = 'Escolher imagem'; }
+}
+function lerImagem(k) {
+  const f = $(`#n-${k}`).files[0];
+  if (!f) { IMG[k] = ''; $(`#p-${k}`).innerHTML = '<i class="pi pi-image"></i>'; $(`#d-${k} .t`).textContent = 'Escolher imagem'; return; }
+  if (!/^image\/(png|jpeg|webp)$/.test(f.type)) { $('#n-err').textContent = 'Use uma imagem PNG, JPG ou WEBP.'; $('#n-err').hidden = false; $(`#n-${k}`).value = ''; return; }
+  if (f.size > MAX_IMG) { $('#n-err').textContent = 'A imagem passa de 1,5 MB. Escolha uma menor.'; $('#n-err').hidden = false; $(`#n-${k}`).value = ''; return; }
+  $('#n-err').hidden = true;
+  const r = new FileReader();
+  r.onload = () => { IMG[k] = String(r.result); $(`#p-${k}`).innerHTML = `<img alt="" src="${IMG[k]}">`; $(`#d-${k} .t`).textContent = f.name; };
+  r.readAsDataURL(f);
+}
+$('#n-icone').addEventListener('change', () => lerImagem('icone'));
+$('#n-logo').addEventListener('change', () => lerImagem('logo'));
+function novo() { $('#novo-form').reset(); limparImagens(); $('#n-err').hidden = true; $('#novo').showModal(); $('#n-nome').focus(); }
 $('#n-cancel').addEventListener('click', () => $('#novo').close());
 $('#novo-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const ok = $('#n-ok'); ok.disabled = true; $('#n-err').hidden = true;
   try {
-    const r = await api('/api/projetos', { nome: $('#n-nome').value, raiz: $('#n-raiz').value.trim(), cor: $('#n-cor').value, estruturaBase: $('#n-base').checked });
+    const r = await api('/api/projetos', { nome: $('#n-nome').value, raiz: $('#n-raiz').value.trim(), cor: $('#n-cor').value, estruturaBase: $('#n-base').checked, icone: IMG.icone, logo: IMG.logo });
     $('#novo').close();
     await carregar();
     S.sel = Math.max(0, S.projetos.findIndex((p) => p.id === r.id)); render();
@@ -57,4 +75,5 @@ $('#novo-form').addEventListener('submit', async (e) => {
 });
 
 async function carregar() { S.projetos = (await api('/api/projetos')).projetos; if (S.sel > S.projetos.length) S.sel = 0; render(); }
-carregar().catch((x) => { $('#info').innerHTML = `<p class="empty">Não consegui carregar os projetos: ${esc(x.message)}</p>`; });
+if (location.hash === '#novo') carregar().then(novo).catch(() => {}); // atalho: /#novo abre o cadastro
+else carregar().catch((x) => { $('#info').innerHTML = `<p class="empty">Não consegui carregar os projetos: ${esc(x.message)}</p>`; });

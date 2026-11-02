@@ -74,7 +74,37 @@ function estrutura(raiz, nome) {
   return criado;
 }
 
-export function adicionar({ nome, raiz, cor, estruturaBase }) {
+// Imagens enviadas pelo formulário: data URL (png/jpeg/webp). Confere o conteúdo real (magic bytes), não só o que o navegador declarou.
+// SVG é recusado de propósito (pode carregar script). Tamanho máximo 1,5 MB por imagem.
+const MAX_IMG = 1_500_000;
+function decodificarImagem(dataUrl, rotulo) {
+  if (dataUrl === undefined || dataUrl === null || dataUrl === '') return null;
+  const m = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl));
+  if (!m) throw new Error(`${rotulo}: use PNG, JPG ou WEBP`);
+  const buf = Buffer.from(m[2], 'base64');
+  if (buf.length > MAX_IMG) throw new Error(`${rotulo}: imagem maior que 1,5 MB`);
+  const ehPng = buf.length > 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  const ehJpg = buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff;
+  const ehWebp = buf.length > 12 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP';
+  const ext = ehPng ? '.png' : ehJpg ? '.jpg' : ehWebp ? '.webp' : '';
+  if (!ext) throw new Error(`${rotulo}: o arquivo não é uma imagem PNG, JPG ou WEBP válida`);
+  return { buf, ext };
+}
+function salvarImagens(id, { icone, logo }) {
+  const dir = path.join(HERE, 'logos');
+  fs.mkdirSync(dir, { recursive: true });
+  const out = {};
+  for (const [campo, img, sufixo] of [['icone', icone, 'icone'], ['logo', logo, 'logo']]) {
+    if (!img) continue;
+    for (const e of ['.png', '.jpg', '.webp']) { try { fs.unlinkSync(path.join(dir, `${id}-${sufixo}${e}`)); } catch {} } // troca de formato não deixa lixo
+    const rel = `logos/${id}-${sufixo}${img.ext}`;
+    fs.writeFileSync(path.join(HERE, rel), img.buf);
+    out[campo] = rel;
+  }
+  return out;
+}
+
+export function adicionar({ nome, raiz, cor, estruturaBase, icone, logo }) {
   nome = String(nome || '').trim();
   if (!nome || nome.length > 60) throw new Error('nome inválido (1 a 60 caracteres)');
   if (typeof raiz !== 'string' || !path.isAbsolute(raiz)) throw new Error('informe o caminho completo da pasta do projeto');
@@ -83,11 +113,12 @@ export function adicionar({ nome, raiz, cor, estruturaBase }) {
   let st; try { st = fs.statSync(abs); } catch { throw new Error('pasta não existe'); }
   if (!st.isDirectory()) throw new Error('o caminho não é uma pasta');
   if (cor && !COR.test(cor)) throw new Error('cor inválida (use #rrggbb)');
+  const imgIcone = decodificarImagem(icone, 'Ícone'), imgLogo = decodificarImagem(logo, 'Logo largo'); // valida antes de tocar em qualquer arquivo
   const registro = lerRegistro();
   if (registro.some((r) => path.resolve(r.raiz).toLowerCase() === abs.toLowerCase())) throw new Error('essa pasta já está cadastrada');
   let id = slug(nome) || 'projeto', n = 1;
   while (registro.some((r) => r.id === id)) id = `${slug(nome) || 'projeto'}-${++n}`;
-  const novo = { id, nome, raiz: abs, cor: cor || '#5b5cf0', descricao: '' };
+  const novo = { id, nome, raiz: abs, cor: cor || '#5b5cf0', descricao: '', ...salvarImagens(id, { icone: imgIcone, logo: imgLogo }) };
   const criado = estruturaBase ? estrutura(abs, nome) : [];
   fs.writeFileSync(FILE, JSON.stringify({ projetos: [...registro, novo] }, null, 2));
   return { id, criado };
