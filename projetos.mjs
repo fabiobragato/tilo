@@ -1,4 +1,4 @@
-// Registro de projetos da Central. Local (projetos.json, fora do git) e sem dependências.
+// Registro de projetos do Tilo. Local (projetos.json, fora do git) e sem dependências.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -38,9 +38,9 @@ const slug = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().rep
 
 const TEMPLATE_PENDENCIAS = `# Pendências
 
-> **⚠ Não exclua este arquivo nem a pasta \`pendencias/\`.** Ele é a fonte de dados da **Central de Projetos**: as telas de pendências e a visão geral deste projeto são montadas a partir dele. Para enxugar, apague só as linhas dos itens concluídos. **Mantenha o formato:** seções \`## N. Título\` e itens em tabela (\`| 🔴/🟡/🟢 | **Título** | descrição | detalhes |\`) ou em lista (\`- 🔴 **Título** — descrição\`).
+> **⚠ Não exclua este arquivo nem a pasta \`pendencias/\`.** Ele é a fonte de dados da **Tilo**: as telas de pendências e a visão geral deste projeto são montadas a partir dele. Para enxugar, apague só as linhas dos itens concluídos. **Mantenha o formato:** seções \`## N. Título\` e itens em tabela (\`| 🔴/🟡/🟢 | **Título** | descrição | detalhes |\`) ou em lista (\`- 🔴 **Título** — descrição\`).
 
-Painel do dono do projeto (Central de Projetos). Prioridade: 🔴 crítica · 🟡 importante · 🟢 pode esperar. Ao concluir, apague a linha.
+Painel do dono do projeto (Tilo). Prioridade: 🔴 crítica · 🟡 importante · 🟢 pode esperar. Ao concluir, apague a linha.
 
 ## 1. Decisões
 
@@ -58,7 +58,7 @@ Antes de implementar qualquer coisa, leia a documentação relevante em \`docs/\
 `;
 const TEMPLATE_DOCS = (nome) => `# Documentação — ${nome}\n\nFonte de verdade do projeto. Conceitos ainda em aberto ficam em \`planning/\` até serem decididos.\n`;
 
-// Cria a estrutura base do padrão de documentação da Central sem sobrescrever nada que já exista.
+// Cria a estrutura base do padrão de documentação do Tilo sem sobrescrever nada que já exista.
 function estrutura(raiz, nome) {
   const criado = [];
   const escreve = (rel, txt) => {

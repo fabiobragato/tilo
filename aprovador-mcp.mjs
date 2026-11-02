@@ -1,5 +1,5 @@
 // Servidor MCP (stdio, sem dependências) usado como --permission-prompt-tool do `claude -p`.
-// Cada pedido de permissão do Claude vira uma chamada à ferramenta `approve`, que consulta o servidor da Central de Projetos
+// Cada pedido de permissão do Claude vira uma chamada à ferramenta `approve`, que consulta o servidor do Tilo
 // (política + clique do dono na UI) e devolve {behavior: allow|deny}. Qualquer falha = negar.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,13 +7,13 @@ import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const PORT = Number(process.env.CENTRAL_PORT || 4777);
-const CHAT = process.env.CENTRAL_CHAT_ID || '';
-const PROJ = process.env.CENTRAL_PROJECT || "";
+const PORT = Number(process.env.TILO_PORT || 4777);
+const CHAT = process.env.TILO_CHAT_ID || '';
+const PROJ = process.env.TILO_PROJECT || "";
 
 const TOOL = {
   name: 'approve',
-  description: 'Pede ao dono, na UI da Central de Projetos, permissão para usar uma ferramenta.',
+  description: 'Pede ao dono, na UI do Tilo, permissão para usar uma ferramenta.',
   inputSchema: {
     type: 'object',
     properties: { tool_name: { type: 'string' }, input: { type: 'object' }, tool_use_id: { type: 'string' } },
@@ -29,7 +29,7 @@ async function decidir(args) {
     const token = fs.readFileSync(path.join(HERE, '.token'), 'utf8').trim();
     const r = await fetch(`http://localhost:${PORT}/api/p/${PROJ}/aprovacao/pedir`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Painel-Token': token },
+      headers: { 'Content-Type': 'application/json', 'X-Tilo-Token': token },
       body: JSON.stringify({ chatId: CHAT, tool_name: args.tool_name, input: args.input, tool_use_id: args.tool_use_id }),
       signal: AbortSignal.timeout(6 * 60_000),
     });
@@ -45,7 +45,7 @@ readline.createInterface({ input: process.stdin }).on('line', async (line) => {
   let m; try { m = JSON.parse(line); } catch { return; }
   if (m.id === undefined) return; // notificações
   const ok = (result) => out({ jsonrpc: '2.0', id: m.id, result });
-  if (m.method === 'initialize') return ok({ protocolVersion: m.params?.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'central', version: '1.0.0' } });
+  if (m.method === 'initialize') return ok({ protocolVersion: m.params?.protocolVersion || '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'tilo', version: '1.0.0' } });
   if (m.method === 'tools/list') return ok({ tools: [TOOL] });
   if (m.method === 'tools/call' && m.params?.name === 'approve') {
     const r = await decidir(m.params.arguments || {});

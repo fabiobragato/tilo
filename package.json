@@ -1,0 +1,21 @@
+{
+  "name": "tilo",
+  "version": "0.1.0",
+  "description": "Tilo — Project Knowledge: documentação, pendências e conversas com o Claude, por projeto, com aprovação de comandos.",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test politica.test.mjs catalogo.test.mjs",
+    "verificar": "powershell -ExecutionPolicy Bypass -File scripts/verificar.ps1"
+  },
+  "keywords": [
+    "documentation",
+    "claude-code",
+    "project-knowledge",
+    "local-first"
+  ]
+}

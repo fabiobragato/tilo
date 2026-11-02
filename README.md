@@ -1,16 +1,16 @@
-# Central de Projetos
+# Tilo — Project Knowledge
 
 Ferramenta local de trabalho do dono: escolha um projeto (tela de seleção estilo console) e trabalhe nas **pendências**, nas **sessões do Claude Code** e nas **conversas com o Claude**, com **aprovação de comandos na UI**. Sem dependências (Node 20+), só `127.0.0.1`.
 
 ## Primeiros passos
-**Pré-requisitos (Windows):** Node 20+, Git for Windows (Git Bash) e Claude Code instalado e logado (a Central usa a assinatura, nunca API paga).
+**Pré-requisitos (Windows):** Node 20+, Git for Windows (Git Bash) e Claude Code instalado e logado (o Tilo usa a assinatura, nunca API paga).
 
 1. `git clone` este repositório e abra um terminal na pasta.
 2. Confira o ambiente: `powershell -ExecutionPolicy Bypass -File scriptserificar.ps1` (acrescente `-TestarLogin` para provar que o login do Claude funciona). Ele diz exatamente o que falta.
-3. Crie o atalho: `powershell -ExecutionPolicy Bypass -File scripts\instalar-atalho.ps1`. Aparece o ícone **Central de Projetos** na área de trabalho (ou use `iniciar.cmd` e abra http://localhost:4777/).
+3. Crie o atalho: `powershell -ExecutionPolicy Bypass -File scripts\instalar-atalho.ps1`. Aparece o ícone **Tilo** na área de trabalho (ou use `iniciar.cmd` e abra http://localhost:4777/).
 4. Clique no atalho. Na primeira vez a tela mostra só o tile **+**: clique nele (ou tecle `N`) e cadastre o projeto: nome, pasta (caminho completo de uma pasta que já existe), cor e, se quiser, **Criar estrutura base** (`pendencias/`, `docs/`, `planning/`, `CLAUDE.md`; nunca sobrescreve nada).
-   **Projeto que já existe (com código)?** Aponte a pasta dele normalmente e marque **Montar a documentação do projeto com o Claude**: depois de adicionar, a Central abre a tela **Documentação** do projeto, onde você confirma o início (veja abaixo).
-5. Abra o projeto: o painel mostra as pendências (uma de exemplo para apagar), as sessões do Claude Code e as conversas. Escreva suas pendências em `pendencias/README.md` do projeto e **não apague esse arquivo**: é a fonte de dados da Central.
+   **Projeto que já existe (com código)?** Aponte a pasta dele normalmente e marque **Montar a documentação do projeto com o Claude**: depois de adicionar, o Tilo abre a tela **Documentação** do projeto, onde você confirma o início (veja abaixo).
+5. Abra o projeto: o painel mostra as pendências (uma de exemplo para apagar), as sessões do Claude Code e as conversas. Escreva suas pendências em `pendencias/README.md` do projeto e **não apague esse arquivo**: é a fonte de dados do Tilo.
 6. Logo (opcional): no próprio formulário, escolha o **ícone** (quadrado, aparece no tile) e o **logo largo** (aparece no menu lateral do painel). PNG, JPG ou WEBP até 1,5 MB; SVG não é aceito. Sem imagem, o tile mostra as iniciais do projeto. Para trocar ou remover a imagem depois, selecione o projeto e tecle `E` (ou clique em **Editar**). Também dá para colocar arquivos em `logos/` e apontar `icone`/`logo` no `projetos.json`. Atalhos: `http://localhost:4777/#novo` abre o cadastro e `/#editar` edita o projeto selecionado.
 
 **Problemas comuns:** `No suitable shell found` = o Claude Code não achou o Git Bash; defina `CLAUDE_CODE_GIT_BASH_PATH` (o `verificar.ps1` mostra o caminho) em `~\.claude\settings.json`, chave `env`, e reinicie. O `bash` do WSL em `System32` não serve.
@@ -33,11 +33,11 @@ Menu **Biblioteca de documentos** (em cada projeto). É um acervo de documentos 
   - **Publicar como está:** copia o documento original, sem alterações.
 - **Generalizar o que já está na biblioteca:** marque documentos e use *Generalizar com o Claude* na barra inferior, ou *Generalizar toda a biblioteca* em **Gerenciar**. Aceitar um rascunho substitui a versão atual.
 - **Gerenciar:** no fim da página dá para remover tudo o que veio de um projeto.
-- Como a generalização funciona por dentro: o Claude roda sem terminal, numa **pasta de rascunhos temporária** isolada (fora do projeto e da Central), lê os documentos de origem em modo somente leitura e só consegue gravar `<área>/<arquivo>.md` ali (`modelos/generalizar.md` tem as instruções; edite para ajustar o critério). Só uma tarefa do Claude por projeto roda por vez.
+- Como a generalização funciona por dentro: o Claude roda sem terminal, numa **pasta de rascunhos temporária** isolada (fora do projeto e do Tilo), lê os documentos de origem em modo somente leitura e só consegue gravar `<área>/<arquivo>.md` ali (`modelos/generalizar.md` tem as instruções; edite para ajustar o critério). Só uma tarefa do Claude por projeto roda por vez.
 - A biblioteca é **local** (`catalogo/<projeto>/<área>/`, fora do git), porque contém a documentação dos seus projetos. Para compartilhar, copie a pasta de um projeto para o `catalogo/` de outra instalação.
 
 ## Usar
-- **Atalho** *Central de Projetos* na área de trabalho (`scripts\instalar-atalho.ps1` cria). Sobe o servidor oculto (se preciso) e abre o navegador já autenticado. Manual: `iniciar.cmd` → http://localhost:4777/.
+- **Atalho** *Tilo* na área de trabalho (`scripts\instalar-atalho.ps1` cria). Sobe o servidor oculto (se preciso) e abre o navegador já autenticado. Manual: `iniciar.cmd` → http://localhost:4777/.
 - **Seleção:** ← → navegam, `Enter` abre, `1`–`9` abrem direto, `E` edita o projeto selecionado (nome, descrição, cor, ícone e logo; a pasta não muda) e `N` cadastra projeto. O tile **+** (ou `N`) abre o formulário: nome, pasta, cor e, opcionalmente, cria a estrutura base (`pendencias/`, `docs/`, `planning/`, `CLAUDE.md`) sem sobrescrever nada.
 - **Dentro do projeto:** botão **Projetos** no menu lateral volta à seleção.
 - **Parar:** encerrar o processo `node server.mjs` (Gerenciador de Tarefas).
@@ -51,7 +51,7 @@ Menu **Biblioteca de documentos** (em cada projeto). É um acervo de documentos 
 ## Segurança
 - Bind `127.0.0.1`, token em `.token` + cookie `SameSite=Strict`, checagem de Host/Origin. `ANTHROPIC_API_KEY` é zerada nos filhos (só assinatura, nunca API paga).
 - **Comandos com aprovação:** no chat, ligue *permitir comandos (com aprovação)*. Cada comando abre um modal com [Negar] / [Aprovar] / [Aprovar todos da sessão]; sem resposta em 5 min = negado.
-  - `aprovador-mcp.mjs` é o `--permission-prompt-tool` (MCP stdio); `politica.mjs` decide antes de perguntar: **nega** destrutivo (`rm -rf`, `docker compose down -v`, push forçado, `reset --hard`), segredos (`.env`, `.ssh`, `.token`, chaves), exfiltração (`curl -d @`, `| bash`, `iex`) e tentativa de falar com a própria Central; **libera** só leitura estrita (`git status/log/diff`, `ls`, `docker ps`…); **pergunta** o resto, com confirmação extra para produção (`ssh`, `migrate`, `deploy`, `git push`, rede externa).
+  - `aprovador-mcp.mjs` é o `--permission-prompt-tool` (MCP stdio); `politica.mjs` decide antes de perguntar: **nega** destrutivo (`rm -rf`, `docker compose down -v`, push forçado, `reset --hard`), segredos (`.env`, `.ssh`, `.token`, chaves), exfiltração (`curl -d @`, `| bash`, `iex`) e tentativa de falar com a próprio Tilo; **libera** só leitura estrita (`git status/log/diff`, `ls`, `docker ps`…); **pergunta** o resto, com confirmação extra para produção (`ssh`, `migrate`, `deploy`, `git push`, rede externa).
   - **Permissões por projeto (sem programação):** o modal explica **em português** o que o comando faz (um resumo automático, com o comando exato logo abaixo) e mostra se ele só consulta, altera arquivos, usa a internet ou mexe em servidor. Botões: **Negar**, **Aprovar só desta vez**, **Aprovar e lembrar** (libera só aquele comando exato, neste projeto, daqui para frente) e o link **Aprovar tudo desta conversa**. O menu **Permissões do Claude** mostra tudo e permite rever: o que vem liberado de fábrica (só consulta: git status/log/diff, listar arquivos, logs, versões), pacotes opcionais que você liga (rodar testes; compilar), os comandos que você lembrou (com explicação e botão de remover), o que é sempre bloqueado e o que sempre pede atenção redobrada, e um campo **Testar um comando** que só simula. Cada projeto ainda pode acrescentar bloqueios e itens de atenção redobrada escrevendo um trecho de texto (ex.: “terraform destroy”).
   - Ordem de decisão: bloqueado (fábrica + projeto) > produção (fábrica + projeto) > comando lembrado > liberado de fábrica/pacotes > pergunta. Regras de fábrica nunca podem ser removidas, e **lembrar nunca vale para produção nem para comandos bloqueados**. Tudo fica em `projetos.json` (chave `politica`) e no log `dados/<id>/auditoria.jsonl`.
   - "Aprovar tudo desta conversa" vale só para comandos comuns daquela conversa (some ao desligar, apagar a conversa ou reiniciar); produção sempre pede.
@@ -59,3 +59,11 @@ Menu **Biblioteca de documentos** (em cada projeto). É um acervo de documentos 
   - O Claude Code libera sozinho uma lista interna de comandos de leitura (`node --version`, `git status`); esses não passam pela UI, mas respeitam o `deny` de segredos.
   - `dados/<id>/auditoria.jsonl` registra cada pedido, risco, decisão e quem decidiu.
 - Testes da política: `node --test politica.test.mjs`.
+
+## Avisos
+- **Uso local e responsabilidade.** O Tilo roda no seu computador (`127.0.0.1`) e deixa o Claude ler arquivos e, **só com a sua aprovação**, propor comandos. A política de comandos reduz o risco, mas não o elimina: leia cada aprovação antes de clicar. Você é responsável pelo que aprova.
+- **Sem afiliação.** O Tilo é um projeto independente e **não é afiliado, patrocinado nem endossado pela Anthropic**. "Claude" e "Claude Code" são marcas de seus respectivos titulares. O Tilo usa o Claude Code **que você instalou e no qual você fez login** (a assinatura é sua); confira os termos de uso do Claude para o seu tipo de uso.
+- **Seus dados ficam com você.** Pendências, conversas, auditoria, biblioteca de documentos e a lista de projetos ficam em arquivos locais ignorados pelo git (`dados/`, `catalogo/`, `projetos.json`, `.token`).
+
+## Licença
+[MIT](LICENSE). O Tilo inclui os ícones do [PrimeIcons](https://github.com/primefaces/primeicons) (também MIT; ver `assets/PRIMEICONS-LICENSE`).

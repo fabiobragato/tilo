@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { resolverId, docsDoProjeto, publicar, listarColecoes, listarDocs, lerDoc, removerDoc, removerColecao, copiarParaProjeto, pastasDeLeitura } from './catalogo.mjs';
 
-const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'central-cat-'));
+const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'tilo-cat-'));
 const grava = (raiz, rel, txt = 'x') => { const f = path.join(raiz, ...rel.split('/')); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, txt); };
 const projeto = () => {
   const p = tmp();

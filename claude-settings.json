@@ -11,15 +11,11 @@
       "Read(**/.env.prod)",
       "Read(**/.ssh/**)",
       "Read(**/.claude/**)",
-      "Read(**/central-projetos/.token)",
-      "Read(**/central-projetos/projetos.json)",
       "Read(**/*.pem)",
       "Read(**/id_ed25519*)",
       "Read(**/id_rsa*)",
       "Edit(**/.env*)",
-      "Write(**/.env*)",
-      "Edit(**/central-projetos/**)",
-      "Write(**/central-projetos/**)"
+      "Write(**/.env*)"
     ]
   }
 }

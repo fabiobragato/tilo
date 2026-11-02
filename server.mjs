@@ -1,4 +1,4 @@
-// Central de Projetos: servidor local, sem dependências. Um seletor de projetos (estilo console) + o painel de cada projeto
+// Tilo: servidor local, sem dependências. Um seletor de projetos (estilo console) + o painel de cada projeto
 // (pendências, sessões do Claude Code, conversas com aprovação de comandos). Escuta só em 127.0.0.1.
 import http from 'node:http';
 import fs from 'node:fs';
@@ -15,10 +15,10 @@ import * as catalogo from './catalogo.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const als = new AsyncLocalStorage(); // projeto da requisição em curso
 const P = () => als.getStore(); // { ROOT, README, STATE, CHATS, META, AUDIT, READABLE_DIRS, TERM_DIR, ... }
-const HOST = process.env.CENTRAL_BIND || '127.0.0.1';
+const HOST = process.env.TILO_BIND || '127.0.0.1';
 const ORIGIN_HOSTS = ['127.0.0.1', 'localhost'];
-const PORT = Number(process.env.CENTRAL_PORT || 4777);
-const PUBLIC_PORT = Number(process.env.CENTRAL_PUBLIC_PORT || PORT);
+const PORT = Number(process.env.TILO_PORT || 4777);
+const PUBLIC_PORT = Number(process.env.TILO_PUBLIC_PORT || PORT);
 const TOKEN_FILE = path.join(HERE, '.token'); // persistente (gitignored): o cookie continua valendo após reiniciar
 const TOKEN = (() => {
   try { const t = fs.readFileSync(TOKEN_FILE, 'utf8').trim(); if (/^[0-9a-f]{48}$/.test(t)) return t; } catch {}
@@ -186,12 +186,25 @@ function terminalSessions() {
 // ---------- conversas do painel (servidor é dono; sobrevivem a reload) ----------
 const jobs = new Map(); // chatId -> { buf, done, child }
 const SYSTEM = [
-  'Você está ajudando o DONO do projeto a gerenciar as pendências dele (painel em pendencias/README.md), dentro da Central de Projetos.',
+  'Você está ajudando o DONO do projeto a gerenciar as pendências dele (painel em pendencias/README.md), dentro do Tilo.',
   'Responda em português, linguagem simples e explicativa, sem jargão desnecessário.',
   'Antes de afirmar algo sobre o sistema, confirme no código ou em docs/ (fonte de verdade). planning/ e pendencias/ não são fonte de verdade.',
   'Siga o CLAUDE.md do repositório. Se for pedido para concluir uma pendência, lembre de atualizar pendencias/README.md.',
 ].join(' ');
-const SETTINGS_FILE = path.join(HERE, 'claude-settings.json');
+// Regras de proteção para os arquivos do próprio Tilo: geradas na partida com o nome REAL da pasta de instalação (não fixo),
+// e só para os arquivos da ferramenta, para não bloquear um projeto do usuário que por acaso tenha o mesmo nome de pasta.
+function gerarSettings() {
+  const base = JSON.parse(fs.readFileSync(path.join(HERE, 'claude-settings.json'), 'utf8'));
+  const pasta = path.basename(HERE);
+  const arquivos = ['server.mjs', 'aprovador-mcp.mjs', 'politica.mjs', 'catalogo.mjs', 'projetos.mjs', 'claude-settings.json', 'projetos.json'];
+  base.permissions.deny.push(`Read(**/${pasta}/.token)`, `Read(**/${pasta}/projetos.json)`,
+    ...['assets', 'modelos', 'scripts'].flatMap((d) => [`Edit(**/${pasta}/${d}/**)`, `Write(**/${pasta}/${d}/**)`]),
+    ...arquivos.flatMap((f) => [`Edit(**/${pasta}/${f})`, `Write(**/${pasta}/${f})`]));
+  const f = path.join(os.tmpdir(), 'tilo-settings.json');
+  fs.writeFileSync(f, JSON.stringify(base));
+  return f;
+}
+const SETTINGS_FILE = gerarSettings();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // ---------- aprovações de comandos (o Claude pede; o dono decide na UI) ----------
@@ -233,10 +246,10 @@ function startJob(chat, text) {
   const tools = canEdit ? 'Read,Grep,Glob,Edit,Write' : 'Read,Grep,Glob';
   // Tudo que não está em --allowedTools cai no aprovador (UI + política). Ferramentas desligadas são bloqueadas de vez.
   const bloqueadas = [...(canEdit || doc ? [] : ['Edit', 'Write']), ...(canExec ? [] : ['Bash', 'PowerShell'])];
-  const mcpCfg = path.join(os.tmpdir(), `central-mcp-${chat.id}.json`);
-  fs.writeFileSync(mcpCfg, JSON.stringify({ mcpServers: { central: { command: process.execPath, args: [path.join(HERE, 'aprovador-mcp.mjs')], env: { CENTRAL_CHAT_ID: chat.id, CENTRAL_PROJECT: proj.id, CENTRAL_PORT: String(PORT) } } } }));
+  const mcpCfg = path.join(os.tmpdir(), `tilo-mcp-${chat.id}.json`);
+  fs.writeFileSync(mcpCfg, JSON.stringify({ mcpServers: { tilo: { command: process.execPath, args: [path.join(HERE, 'aprovador-mcp.mjs')], env: { TILO_CHAT_ID: chat.id, TILO_PROJECT: proj.id, TILO_PORT: String(PORT) } } } }));
   const args = ['-p', '--output-format', 'text', '--allowedTools', tools, '--setting-sources', 'project', '--settings', SETTINGS_FILE,
-    '--mcp-config', mcpCfg, '--strict-mcp-config', '--permission-prompt-tool', 'mcp__central__approve', '--append-system-prompt', JSON.stringify(SYSTEM)];
+    '--mcp-config', mcpCfg, '--strict-mcp-config', '--permission-prompt-tool', 'mcp__tilo__approve', '--append-system-prompt', JSON.stringify(SYSTEM)];
   if (bloqueadas.length) args.push('--disallowedTools', bloqueadas.join(','));
   const dirsRef = chat.gen ? chat.gen.leitura : catalogo.pastasDeLeitura(chat.referencias || []); // documentos da biblioteca: leitura liberada, escrita bloqueada (settings)
   if (dirsRef.length) args.push('--add-dir', ...dirsRef.map((d) => `"${d}"`));
@@ -296,11 +309,11 @@ function readBody(req, max = MAX_BODY) {
 const hostOk = (req) => ORIGIN_HOSTS.some((n) => (req.headers.host || '').toLowerCase() === `${n}:${PUBLIC_PORT}`);
 const originOk = (req) => !req.headers.origin || ORIGIN_HOSTS.some((n) => req.headers.origin === `http://${n}:${PUBLIC_PORT}`);
 function cookieToken(req) {
-  const m = (req.headers.cookie || '').match(/(?:^|;\s*)central_t=([0-9a-f]+)/);
+  const m = (req.headers.cookie || '').match(/(?:^|;\s*)tilo_t=([0-9a-f]+)/);
   return m ? m[1] : null;
 }
 function tokenOk(req, url) {
-  const t = req.headers['x-painel-token'] || url.searchParams.get('t') || cookieToken(req);
+  const t = req.headers['x-tilo-token'] || url.searchParams.get('t') || cookieToken(req);
   if (typeof t !== 'string' || t.length !== TOKEN.length) return false;
   return crypto.timingSafeEqual(Buffer.from(t), Buffer.from(TOKEN));
 }
@@ -333,9 +346,9 @@ async function core(req, res, url) {
 
     const pm = url.pathname.match(/^\/p\/([a-z0-9-]+)\/?$/); // painel de um projeto
     if (req.method === 'GET' && pm) {
-      if (!tokenOk(req, url)) return send(res, 403, 'Abra a Central pelo atalho (ou pelo link com token) uma vez; depois o cookie basta.', 'text/plain; charset=utf-8');
+      if (!tokenOk(req, url)) return send(res, 403, 'Abra o Tilo pelo atalho (ou pelo link com token) uma vez; depois o cookie basta.', 'text/plain; charset=utf-8');
       if (url.searchParams.get('t')) { // atalho por projeto: grava o cookie e limpa o token da URL
-        res.writeHead(302, { Location: url.pathname, 'Set-Cookie': `central_t=${TOKEN}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`, 'Cache-Control': 'no-store' });
+        res.writeHead(302, { Location: url.pathname, 'Set-Cookie': `tilo_t=${TOKEN}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`, 'Cache-Control': 'no-store' });
         return res.end();
       }
       const proj = projetos.obter(pm[1]);
@@ -354,9 +367,9 @@ async function core(req, res, url) {
     }
 
     if (req.method === 'GET' && url.pathname === '/') {
-      if (!tokenOk(req, url)) return send(res, 403, 'Abra a Central pelo atalho (ou pelo link com token) uma vez; depois o cookie basta.', 'text/plain; charset=utf-8');
+      if (!tokenOk(req, url)) return send(res, 403, 'Abra o Tilo pelo atalho (ou pelo link com token) uma vez; depois o cookie basta.', 'text/plain; charset=utf-8');
       if (url.searchParams.get('t')) { // grava cookie (Strict, HttpOnly) e tira o token da URL
-        res.writeHead(302, { Location: '/', 'Set-Cookie': `central_t=${TOKEN}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`, 'Cache-Control': 'no-store' });
+        res.writeHead(302, { Location: '/', 'Set-Cookie': `tilo_t=${TOKEN}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`, 'Cache-Control': 'no-store' });
         return res.end();
       }
       const nonce = crypto.randomBytes(16).toString('base64');
@@ -540,7 +553,7 @@ async function core(req, res, url) {
         startJob(c, prompt);
         return send(res, 200, chatView(c));
       }
-      case '/api/documentacao/iniciar': { // o Claude lê o projeto e monta/atualiza docs/ no padrão da Central (modelos/documentar.md)
+      case '/api/documentacao/iniciar': { // o Claude lê o projeto e monta/atualiza docs/ no padrão do Tilo (modelos/documentar.md)
         const modo = body.modo === 'atualizar' ? 'atualizar' : 'criar', modelo = MODELS.includes(body.modelo) ? body.modelo : DEFAULT_MODEL;
         if (Object.values(loadChats().chats).some((c) => c.doc && jobs.get(c.id) && !jobs.get(c.id).done)) return send(res, 409, { erro: 'já existe uma documentação em andamento neste projeto' });
         let tpl; try { tpl = fs.readFileSync(path.join(HERE, 'modelos', 'documentar.md'), 'utf8'); } catch { return send(res, 500, { erro: 'modelo de documentação não encontrado' }); }
@@ -708,6 +721,6 @@ async function core(req, res, url) {
 }
 
 server.listen(PORT, HOST, () => {
-  console.log(`\nCentral de Projetos (somente local)\n  Primeiro acesso: http://localhost:${PUBLIC_PORT}/?t=${TOKEN}\n  Depois: http://localhost:${PUBLIC_PORT}/\n`);
+  console.log(`\nTilo (somente local)\n  Primeiro acesso: http://localhost:${PUBLIC_PORT}/?t=${TOKEN}\n  Depois: http://localhost:${PUBLIC_PORT}/\n`);
   console.log('Ctrl+C para encerrar.');
 });

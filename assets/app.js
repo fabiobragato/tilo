@@ -66,7 +66,7 @@ const S = {
   tx: {}, // transcripts do terminal
   page: { pend: 1, sess: 1, arq: 1 }, size: { pend: 10, sess: 6, arq: 12 },
   f: { sec: 0, prio: '', stat: 'ativos', q: '', sessTab: 'painel', hid: false, area: '' },
-  draft: {}, collapsed: ls.get('central.sidebar-collapsed', '0') === '1',
+  draft: {}, collapsed: ls.get('tilo.sidebar-collapsed', '0') === '1',
 };
 const st = (id) => S.state.items[id] || { status: 'aberto' };
 const items = () => S.sections.flatMap((s) => s.items);
@@ -565,7 +565,7 @@ function renderDocumentacao() {
   ${rodando ? `<div class="card doc-run"><div class="card-head"><span class="ico"><i class="pi pi-spin pi-spinner"></i></span><h3>Documentação em andamento</h3><a class="link" href="#/chat?s=${D.job.chatId}">Ver a conversa</a></div><div class="card-body"><p class="muted small">Pode levar vários minutos. Os arquivos novos aparecem abaixo. Você pode sair desta tela: ela continua.</p></div></div>` : D.job ? `<div class="card"><div class="card-head"><span class="ico"><i class="pi pi-history"></i></span><h3>Última execução</h3><a class="link" href="#/chat?s=${D.job.chatId}">Ver a conversa e o resumo</a></div></div>` : ''}
   <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-th-large"></i></span><h3>Como está hoje</h3><span class="muted small">${D.total} documento${D.total === 1 ? '' : 's'} em docs/</span></div><div class="card-body">
     <div class="doc-grid">${D.areas.map((a) => `<div class="doc-area ${a.arquivos ? 'on' : ''}">${ok(a.arquivos)}<b>${esc(a.nome)}</b><span class="muted small">${a.arquivos ? `${a.arquivos} documento${a.arquivos === 1 ? '' : 's'}` : 'ainda não existe'}</span></div>`).join('')}</div>
-    <ul class="doc-geral"><li>${ok(D.geral.docsReadme)} <b>docs/README.md</b> índice geral</li><li>${ok(D.geral.claudeMd)} <b>CLAUDE.md</b> instruções para o Claude trabalhar no projeto</li><li>${ok(D.geral.planning)} <b>planning/</b> planos ainda não fechados</li><li>${ok(D.geral.pendencias)} <b>pendencias/</b> o seu painel (é daqui que a Central lê as pendências)</li></ul></div></div>
+    <ul class="doc-geral"><li>${ok(D.geral.docsReadme)} <b>docs/README.md</b> índice geral</li><li>${ok(D.geral.claudeMd)} <b>CLAUDE.md</b> instruções para o Claude trabalhar no projeto</li><li>${ok(D.geral.planning)} <b>planning/</b> planos ainda não fechados</li><li>${ok(D.geral.pendencias)} <b>pendencias/</b> o seu painel (é daqui que o Tilo lê as pendências)</li></ul></div></div>
   <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-sparkles"></i></span><h3>${vazio ? 'Montar a documentação' : 'Montar ou atualizar'}</h3></div><div class="card-body">
     <p class="small">${vazio ? 'O Claude lê o projeto, escreve os documentos em português e confere cada afirmação no código.' : '<b>Criar o que falta</b> escreve só o que ainda não existe. <b>Conferir com o código</b> compara cada documento com o código e corrige o que está desatualizado.'} O que ele não conseguir confirmar vai para <b>pendencias/</b>.</p>
     <details class="doc-det"><summary>O que ele pode e não pode fazer</summary><ul class="doc-bul">
@@ -733,7 +733,7 @@ document.addEventListener('keydown', (e) => {
 });
 $('#searchForm').addEventListener('submit', (e) => { e.preventDefault(); S.f.q = $('#gsearch').value.trim(); S.f.stat = S.f.q ? '' : 'ativos'; S.f.sec = 0; S.page.pend = 1; if (route() !== 'pendencias') location.hash = '#/pendencias'; else render(); });
 $('#gsearch').addEventListener('input', (e) => { if (!e.target.value && S.f.q) { S.f.q = ''; S.f.stat = 'ativos'; render(); } });
-$('#toggle').addEventListener('click', () => { S.collapsed = !S.collapsed; ls.set('central.sidebar-collapsed', S.collapsed ? '1' : '0'); renderNav(); });
+$('#toggle').addEventListener('click', () => { S.collapsed = !S.collapsed; ls.set('tilo.sidebar-collapsed', S.collapsed ? '1' : '0'); renderNav(); });
 $('#dx').addEventListener('click', () => $('#dlg').close());
 $('#reload').addEventListener('click', () => refresh(true));
 async function openFile(p) {

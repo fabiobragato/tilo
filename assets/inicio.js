@@ -20,7 +20,7 @@ function render() {
   rail.innerHTML = S.projetos.map((p, i) => `<button class="tile ${i === S.sel ? 'on' : ''}" role="option" data-i="${i}" aria-label="${esc(p.nome)}" style="--c:${esc(p.cor)}"><img src="${esc(p.logo)}?v=${S.v}" alt=""></button>`).join('')
     + `<button class="tile add ${S.sel === S.projetos.length ? 'on' : ''}" role="option" data-i="${S.projetos.length}" aria-label="Novo projeto"><i class="pi pi-plus"></i></button>`;
   const p = S.projetos[S.sel];
-  $('#info').innerHTML = p ? `<h1>${esc(p.nome)}</h1><p>${esc(p.descricao || 'Abrir pendências, sessões e conversas')}</p><button class="b" id="edit-btn"><i class="pi pi-pencil"></i> Editar</button>` : '<h1>Novo projeto</h1><p>Adicione outro projeto à Central</p>';
+  $('#info').innerHTML = p ? `<h1>${esc(p.nome)}</h1><p>${esc(p.descricao || 'Abrir pendências, sessões e conversas')}</p><button class="b" id="edit-btn"><i class="pi pi-pencil"></i> Editar</button>` : '<h1>Novo projeto</h1><p>Adicione outro projeto ao Tilo</p>';
   rail.querySelector('.tile.on')?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
 }
 function abrir(i) {
@@ -70,7 +70,7 @@ function abrirForm(modoEdicao) {
   $('#n-raiz').required = !modoEdicao;
   $('#novo-t').textContent = modoEdicao ? 'Editar projeto' : 'Novo projeto';
   $('.nic i').className = 'pi ' + (modoEdicao ? 'pi-pencil' : 'pi-plus');
-  $('#novo-sub').textContent = modoEdicao ? 'Altera nome, descrição, cor e imagens. A pasta do projeto não muda.' : 'Projeto novo (pasta vazia) ou que já existe com código. Os dados dele ficam na Central, não dentro da pasta do projeto.';
+  $('#novo-sub').textContent = modoEdicao ? 'Altera nome, descrição, cor e imagens. A pasta do projeto não muda.' : 'Projeto novo (pasta vazia) ou que já existe com código. Os dados dele ficam no Tilo, não dentro da pasta do projeto.';
   $('#n-ok-t').textContent = modoEdicao ? 'Salvar' : 'Adicionar';
   $('#n-err').hidden = true; $('#novo').showModal(); $('#n-nome').focus();
 }

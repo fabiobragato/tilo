@@ -140,8 +140,8 @@ export function pastasDeLeitura(ids, dir = DIR_CATALOGO) {
 
 // ---------- rascunhos de generalização ----------
 // Um "lote" é um trabalho do Claude que reescreve documentos sem as partes específicas do produto. Os rascunhos ficam numa pasta
-// temporária isolada (fora do projeto e da Central); só entram na biblioteca quando o dono aceita.
-export const DIR_RASCUNHOS = path.join(os.tmpdir(), 'central-rascunhos');
+// temporária isolada (fora do projeto e do Tilo); só entram na biblioteca quando o dono aceita.
+export const DIR_RASCUNHOS = path.join(os.tmpdir(), 'tilo-rascunhos');
 const LOTE = /^[0-9a-f]{8}$/;
 const lerJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return d; } };
 

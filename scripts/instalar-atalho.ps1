@@ -1,10 +1,10 @@
-﻿# Cria o atalho "Central de Projetos" na área de trabalho (ícone próprio da Central).
+﻿# Cria o atalho "Tilo" na área de trabalho (ícone próprio do Tilo).
 $ErrorActionPreference = 'Stop'
 $raiz = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '..')).Path
 Add-Type -AssemblyName System.Drawing
 
 # Ícone .ico (256x256, PNG embutido) desenhado aqui: 4 blocos, o primeiro em destaque.
-$ico = Join-Path $raiz 'assets\central.ico'
+$ico = Join-Path $raiz 'assets\tilo.ico'
 $bmp = New-Object System.Drawing.Bitmap 256, 256
 $g = [System.Drawing.Graphics]::FromImage($bmp)
 $g.SmoothingMode = 'AntiAlias'
@@ -34,13 +34,13 @@ $bw.Write([uint16]1); $bw.Write([uint16]32); $bw.Write([uint32]$dados.Length); $
 $bw.Write($dados); $bw.Close(); $fs.Close()
 
 $desktop = [Environment]::GetFolderPath('Desktop')
-$lnk = Join-Path $desktop 'Central de Projetos.lnk'
+$lnk = Join-Path $desktop 'Tilo.lnk'
 $sh = New-Object -ComObject WScript.Shell
 $a = $sh.CreateShortcut($lnk)
 $a.TargetPath = (Get-Command powershell.exe).Source
-$a.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$(Join-Path $raiz 'scripts\iniciar-central.ps1')`""
+$a.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$(Join-Path $raiz 'scripts\iniciar-tilo.ps1')`""
 $a.WorkingDirectory = $raiz
 $a.IconLocation = $ico
-$a.Description = 'Central de Projetos: escolha o projeto e trabalhe nas pendências, sessões e conversas com o Claude'
+$a.Description = 'Tilo: escolha o projeto e trabalhe nas pendências, sessões e conversas com o Claude'
 $a.Save()
 Write-Output "Atalho criado: $lnk"

@@ -1,9 +1,9 @@
-﻿# Central de Projetos: sobe o servidor local (se ainda não estiver no ar) e abre o navegador já autenticado.
-# Usado pelo atalho da área de trabalho (ver instalar-atalho.ps1). Janela oculta; logs em central.log.
+﻿# Tilo — Project Knowledge: sobe o servidor local (se ainda não estiver no ar) e abre o navegador já autenticado.
+# Usado pelo atalho da área de trabalho (ver instalar-atalho.ps1). Janela oculta; logs em tilo.log.
 param([string]$Projeto = '')
 $ErrorActionPreference = 'Stop'
 $raiz = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '..')).Path
-$porta = if ($env:CENTRAL_PORT) { [int]$env:CENTRAL_PORT } else { 4777 }
+$porta = if ($env:TILO_PORT) { [int]$env:TILO_PORT } else { 4777 }
 
 function Test-Porta { try { (New-Object Net.Sockets.TcpClient).Connect('127.0.0.1', $porta); $true } catch { $false } }
 
@@ -12,7 +12,7 @@ if (-not (Test-Porta)) {
   $env:ANTHROPIC_API_KEY = ''
   $env:ANTHROPIC_AUTH_TOKEN = ''
   Start-Process -FilePath 'node' -ArgumentList 'server.mjs' -WorkingDirectory $raiz -WindowStyle Hidden `
-    -RedirectStandardOutput (Join-Path $raiz 'central.log') -RedirectStandardError (Join-Path $raiz 'central.err.log')
+    -RedirectStandardOutput (Join-Path $raiz 'tilo.log') -RedirectStandardError (Join-Path $raiz 'tilo.err.log')
   for ($i = 0; $i -lt 40 -and -not (Test-Porta); $i++) { Start-Sleep -Milliseconds 250 }
 }
 

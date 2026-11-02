@@ -1,4 +1,4 @@
-// Política de comandos da Central. Funções puras (testáveis): decidem o que fazer com um pedido de ferramenta do Claude
+// Política de comandos do Tilo. Funções puras (testáveis): decidem o que fazer com um pedido de ferramenta do Claude
 // e explicam, em português simples, o que o comando faz.
 //   negar    -> bloqueado sem perguntar (destrutivo, segredos, exfiltração, auto-aprovação)
 //   permitir -> liberado sem perguntar (somente leitura de fábrica + o que o dono lembrou/ligou neste projeto)
@@ -26,7 +26,7 @@ export const PADRAO = {
     [/git\s+reset\s+--hard/i, 'Descartar mudanças não salvas', 'Jogar fora todas as alterações que ainda não foram salvas no git.'],
     [/git\s+clean\s+-[a-z]*f/i, 'Apagar arquivos novos do git', 'Apagar arquivos que o git ainda não conhece.'],
     [/(^|[\s"'\/\\])\.env(?!\.example)\b|\.ssh\b|id_(ed25519|rsa|ecdsa)|\.token\b|[\/\\]\.claude\b|credentials|\.pem\b/i, 'Mexer em senhas e chaves', 'Ler ou alterar senhas, chaves de acesso e arquivos .env.'],
-    [/(localhost|127\.0\.0\.1|\[::1\]):4777|api\/aprovacao/i, 'Mexer na própria Central', 'Tentar aprovar coisas sozinho ou alterar a Central de Projetos.'],
+    [/(localhost|127\.0\.0\.1|\[::1\]):4777|api\/aprovacao/i, 'Mexer na próprio Tilo', 'Tentar aprovar coisas sozinho ou alterar o Tilo.'],
     [/\b(curl|wget)\b[^\n]*(\s-d\s*@|--data(-binary|-raw|-urlencode)?[\s=]*@|\s-F\s|\s-T\s|--upload-file)/i, 'Enviar arquivos para a internet', 'Mandar arquivos do seu computador para fora.'],
     [/\b(invoke-webrequest|invoke-restmethod|iwr|irm)\b[^\n]*(-infile|-body\s)/i, 'Enviar arquivos para a internet', 'Mandar arquivos do seu computador para fora.'],
     [/\|\s*(sh|bash|zsh|iex|invoke-expression)\b|\b(iex|invoke-expression)\b|-encodedcommand|-enc\s|base64\s+(-d|--decode)[^\n]*\|/i, 'Executar código escondido', 'Baixar e rodar código sem você ver, ou comandos codificados para esconder o que fazem.'],
