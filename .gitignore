@@ -1,0 +1,8 @@
+# Local (não vai para o git)
+.token
+dados/
+projetos.json
+logos/
+*.log
+assets/central.ico
+node_modules/

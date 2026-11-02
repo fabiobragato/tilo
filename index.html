@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__NOME__ · Central de Projetos</title>
+<link rel="icon" href="/logo/__PROJ__">
+<link rel="stylesheet" href="/assets/primeicons.css">
+<link rel="stylesheet" href="/assets/app.css">
+<style>:root{--accent:__COR__}</style>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <a class="brand" href="#/visao" aria-label="__NOME__, visão geral">
+      <img class="brand-icon" src="/logo/__PROJ__" alt="">
+      <div class="brand-full"><img class="brand-logo" src="/logo/__PROJ__?tipo=largo" alt="__NOME__"></div>
+    </a>
+    <button type="button" class="sidebar-toggle" id="toggle" aria-label="Recolher menu" data-label="Recolher menu"><i class="pi pi-angle-double-left" aria-hidden="true"></i></button>
+    <a class="back-link" href="/" title="Voltar para a seleção de projetos"><i class="pi pi-th-large" aria-hidden="true"></i><span>Projetos</span></a>
+    <div class="workspace-label">PAINEL DO DONO</div>
+    <nav class="nav-list" aria-label="Navegação principal" id="nav"></nav>
+    <div class="sidebar-foot"><b>Uso local</b><br>Roda com a sua assinatura do Claude. Nada sai desta máquina além das chamadas ao Claude.</div>
+  </aside>
+
+  <main class="main-area">
+    <header class="topbar">
+      <form class="global-search" role="search" id="searchForm">
+        <i class="pi pi-search" aria-hidden="true"></i>
+        <input id="gsearch" placeholder="Buscar pendência por título ou texto" aria-label="Buscar pendência" autocomplete="off">
+        <span class="shortcut" aria-hidden="true">Ctrl K</span>
+      </form>
+      <div class="topbar-actions">
+        <span class="sync" title="Atualiza sozinho a cada 4 s"><span class="dot live"></span><span id="synctxt">sincronizado</span></span>
+        <button class="icon-btn" id="reload" title="Atualizar agora" aria-label="Atualizar agora"><i class="pi pi-refresh"></i></button>
+      </div>
+    </header>
+    <div class="content" id="view"></div>
+  </main>
+</div>
+
+<dialog id="dlg"><div class="dh"><b id="dt"></b><button class="icon-btn" id="dx" aria-label="Fechar"><i class="pi pi-times"></i></button></div><div class="db" id="dc"></div></dialog>
+<dialog id="adlg" class="adlg" aria-labelledby="adlg-t"></dialog>
+<div id="toast" role="status"></div>
+<script src="/assets/app.js" nonce="__NONCE__"></script>
+</body>
+</html>

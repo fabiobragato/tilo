@@ -1,0 +1,15 @@
+{
+  "projetos": [
+    {
+      "id": "meu-projeto",
+      "nome": "Meu Projeto",
+      "raiz": "C:\\caminho\\do\\projeto",
+      "cor": "#5b5cf0",
+      "descricao": "Opcional: uma linha sobre o projeto",
+      "icone": "logos/meu-projeto-icone.png",
+      "logo": "logos/meu-projeto-logo.png",
+      "pendencias": "pendencias/README.md",
+      "pastasLegiveis": ["docs", "planning", "pendencias", "apps", "infra"]
+    }
+  ]
+}
