@@ -37,6 +37,8 @@ const slug = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().rep
 
 const TEMPLATE_PENDENCIAS = `# Pendências
 
+> **⚠ Não exclua este arquivo nem a pasta \`pendencias/\`.** Ele é a fonte de dados da **Central de Projetos**: as telas de pendências e a visão geral deste projeto são montadas a partir dele. Para enxugar, apague só as linhas dos itens concluídos. **Mantenha o formato:** seções \`## N. Título\` e itens em tabela (\`| 🔴/🟡/🟢 | **Título** | descrição | detalhes |\`) ou em lista (\`- 🔴 **Título** — descrição\`).
+
 Painel do dono do projeto (Central de Projetos). Prioridade: 🔴 crítica · 🟡 importante · 🟢 pode esperar. Ao concluir, apague a linha.
 
 ## 1. Decisões
