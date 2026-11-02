@@ -49,46 +49,86 @@ test('PowerShell passa pela mesma política', () => {
   assert.equal(acao('Remove-Item -Recurse -Force x', 'PowerShell'), 'negar');
 });
 
-// ---------- regras por projeto ----------
-import { validarConfig, compilar } from './politica.mjs';
-const proj = (cfg) => compilar(cfg);
-const aj = (cmd, cfg) => avaliar('Bash', { command: cmd }, proj(cfg));
+// ---------- permissões por projeto ----------
+import { validarConfig, compilar, descrever, descreverFabrica, listarPacotes } from './politica.mjs';
+const aj = (cmd, cfg) => avaliar('Bash', { command: cmd }, compilar(cfg));
 
-test('projeto pode liberar comando específico (inteiro, sem metacaracteres)', () => {
-  const cfg = { permitir: [{ padrao: '^npm run (test|lint)$' }] };
-  assert.equal(aj('npm run test', cfg).acao, 'permitir');
-  assert.equal(aj('npm run test', cfg).origem, 'projeto');
-  assert.equal(aj('npm run build', cfg).acao, 'perguntar');
-  assert.notEqual(aj('npm run test; rm x', cfg).acao, 'permitir');
-  assert.notEqual(aj('npm run test && whoami', cfg).acao, 'permitir');
+test('pacote de testes só libera quando ligado', () => {
+  assert.equal(aj('npm run test', {}).acao, 'perguntar');
+  assert.equal(aj('npm run test', { pacotes: ['testes'] }).acao, 'permitir');
+  assert.equal(aj('dotnet test', { pacotes: ['testes'] }).acao, 'permitir');
+  assert.equal(aj('npm run build', { pacotes: ['testes'] }).acao, 'perguntar'); // build é outro pacote
+  assert.equal(aj('npm run build', { pacotes: ['build'] }).acao, 'permitir');
+  assert.notEqual(aj('npm run test; rm x', { pacotes: ['testes'] }).acao, 'permitir');
+  assert.deepEqual(validarConfig({ pacotes: ['testes', 'inexistente'] }).pacotes, ['testes']);
 });
 
-test('projeto pode bloquear e marcar produção', () => {
-  const cfg = { negar: [{ padrao: String.raw`terraform\s+destroy`, motivo: 'destrói infra' }], producao: [{ padrao: String.raw`\bkubectl\b` }] };
-  assert.deepEqual([aj('terraform destroy -auto-approve', cfg).acao, aj('terraform destroy', cfg).motivo], ['negar', 'destrói infra']);
-  assert.deepEqual([aj('kubectl get pods', cfg).acao, aj('kubectl get pods', cfg).risco], ['perguntar', 'producao']);
+test('comando lembrado vale só para o texto exato', () => {
+  const cfg = { lembrados: [{ comando: 'docker compose up -d --build api' }] };
+  const r = aj('docker compose up -d --build api', cfg);
+  assert.deepEqual([r.acao, r.origem], ['permitir', 'projeto']);
+  assert.equal(aj('docker compose up -d --build api frontend', cfg).acao, 'perguntar');
+  assert.equal(aj('docker compose up -d --build api ', cfg).acao, 'permitir'); // espaços nas pontas são ignorados no pedido
 });
 
-test('regra do projeto nunca enfraquece o padrão', () => {
-  const cfg = { permitir: [{ padrao: '^rm -rf x$' }, { padrao: String.raw`^cat \.env$` }, { padrao: '^ssh -V$' }] };
+test('lembrar nunca enfraquece bloqueio nem produção', () => {
+  const cfg = { lembrados: [{ comando: 'rm -rf x' }, { comando: 'cat .env' }, { comando: 'ssh -V' }, { comando: 'git push origin main' }] };
   assert.equal(aj('rm -rf x', cfg).acao, 'negar');
   assert.equal(aj('cat .env', cfg).acao, 'negar');
-  assert.equal(aj('ssh -V', cfg).risco, 'producao'); // produção vence permitir
-  assert.notEqual(aj('ssh -V', cfg).acao, 'permitir');
+  assert.deepEqual([aj('ssh -V', cfg).acao, aj('ssh -V', cfg).risco], ['perguntar', 'producao']);
+  assert.deepEqual([aj('git push origin main', cfg).acao, aj('git push origin main', cfg).risco], ['perguntar', 'producao']);
 });
 
-test('validação recusa regra perigosa ou inválida', () => {
-  assert.throws(() => validarConfig({ permitir: [{ padrao: 'npm test' }] }), /\^ e terminar com \$/);
-  assert.throws(() => validarConfig({ permitir: [{ padrao: '^npm .*$' }] }), /curinga amplo/);
-  assert.throws(() => validarConfig({ negar: [{ padrao: '(' }] }), /inválida/);
-  assert.throws(() => validarConfig({ negar: [{ padrao: '(a+)+$' }] }), /aninhada/);
-  assert.throws(() => validarConfig({ negar: [{ padrao: '' }] }), /vazio/);
-  assert.throws(() => validarConfig({ negar: 'x' }), /lista/);
-  assert.throws(() => validarConfig({ negar: Array.from({ length: 41 }, () => ({ padrao: 'x' })) }), /no máximo/);
-  assert.deepEqual(validarConfig(undefined), { negar: [], producao: [], permitir: [] });
+test('bloqueio e cuidado extra por texto (sem regex)', () => {
+  const cfg = { bloqueios: [{ texto: 'terraform destroy', motivo: 'destrói infra' }], producao: [{ texto: 'kubectl' }] };
+  const b = aj('terraform destroy -auto-approve', cfg);
+  assert.deepEqual([b.acao, b.motivo, b.origem], ['negar', 'destrói infra', 'projeto']);
+  assert.deepEqual([aj('KUBECTL get pods', cfg).acao, aj('kubectl get pods', cfg).risco], ['perguntar', 'producao']);
+  // caracteres especiais são tratados como texto comum, não como expressão
+  assert.equal(aj('echo a.c', { bloqueios: [{ texto: 'a.c' }] }).acao, 'negar');
+  assert.notEqual(aj('echo abc', { bloqueios: [{ texto: 'a.c' }] }).acao, 'negar');
 });
 
-test('compilar ignora entradas inválidas sem derrubar', () => {
-  assert.deepEqual(compilar({ negar: [{ padrao: '(' }] }), { negar: [], producao: [], permitir: [] });
-  assert.equal(aj('ls', { negar: 5 }).acao, 'permitir');
+test('validação da configuração', () => {
+  assert.throws(() => validarConfig({ bloqueios: [{ texto: 'ab' }] }), /curto demais/);
+  assert.throws(() => validarConfig({ bloqueios: [{ texto: 'x'.repeat(81) }] }), /longo demais/);
+  assert.throws(() => validarConfig({ lembrados: 'x' }), /lista/);
+  assert.throws(() => validarConfig({ lembrados: [{ comando: 'x'.repeat(4001) }] }), /longo demais/);
+  assert.deepEqual(validarConfig(undefined), { pacotes: [], lembrados: [], bloqueios: [], producao: [] });
+  assert.deepEqual(validarConfig({ negar: [{ padrao: 'x' }] }), { pacotes: [], lembrados: [], bloqueios: [], producao: [] }); // formato antigo é ignorado
+  assert.equal(validarConfig({ lembrados: [{ comando: 'a' }, { comando: 'a' }] }).lembrados.length, 1);
+  assert.equal(aj('ls', { lembrados: 5 }).acao, 'permitir'); // config ruim não derruba a política
+});
+
+test('explicação em português: leitura, mudança, rede e servidor', () => {
+  const d = (c) => descrever('Bash', { command: c });
+  assert.deepEqual([d('git status').nivel, d('git status').resumo], ['leitura', 'Mostra quais arquivos mudaram']);
+  assert.equal(d('ls -la docs').nivel, 'leitura');
+  assert.equal(d('touch a.txt').nivel, 'altera');
+  assert.match(d('rm -rf x').resumo, /APAGA/);
+  assert.equal(d('npm install').nivel, 'rede');
+  assert.equal(d('curl https://exemplo.com/x').nivel, 'rede');
+  assert.equal(d('curl http://localhost:8080/health').nivel, 'leitura');
+  assert.equal(d('ssh deploy@vps.exemplo.com ls').nivel, 'servidor');
+  assert.equal(d('git push origin main').nivel, 'servidor');
+  assert.equal(d('pwsh -File scripts/migrate.ps1').nivel, 'servidor');
+  assert.match(d('pwsh -File scripts/migrate.ps1').resumo, /migrate\.ps1/);
+  assert.equal(d('docker compose up -d --build api').nivel, 'altera');
+  assert.equal(d('docker compose logs api').nivel, 'leitura');
+});
+
+test('explicação de comando composto e desconhecido', () => {
+  const c = descrever('Bash', { command: 'cd apps/api && npm run test && git status' });
+  assert.equal(c.passos.length, 3);
+  assert.equal(c.nivel, 'altera');
+  assert.match(c.resumo, /3 passos/);
+  assert.equal(descrever('Bash', { command: 'meuprograma --faz-algo' }).nivel, 'desconhecido');
+  assert.equal(descrever('PowerShell', { command: 'powershell -Command "git status; git log"' }).nivel, 'leitura');
+  assert.equal(descrever('WebFetch', { url: 'https://exemplo.com/a' }).nivel, 'rede');
+});
+
+test('listas para a tela não expõem regex', () => {
+  const f = descreverFabrica();
+  for (const k of ['negar', 'producao', 'permitir']) for (const r of f[k]) { assert.ok(r.titulo && r.descricao); assert.deepEqual(Object.keys(r), ['titulo', 'descricao']); }
+  assert.ok(listarPacotes().every((p) => p.id && p.titulo && p.exemplos.length));
 });

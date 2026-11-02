@@ -126,15 +126,17 @@ export function adicionar({ nome, raiz, cor, descricao, estruturaBase, icone, lo
   return { id, criado };
 }
 
-// Política de comandos do projeto: valida (lança Error em português) e grava no registro.
-export function salvarPolitica(id, cfg) {
-  const norm = validarConfig(cfg);
+// Permissões do projeto: aplica uma mudança sobre a configuração já validada, revalida e grava (lança Error em português).
+// fn recebe { pacotes, lembrados, bloqueios, producao } e pode alterá-la.
+export function atualizarPolitica(id, fn) {
   const registro = lerRegistro();
   const r = registro.find((x) => x.id === id);
   if (!r) throw new Error('projeto não encontrado');
-  r.politica = norm;
+  const cfg = validarConfig(r.politica);
+  fn(cfg);
+  r.politica = validarConfig(cfg);
   fs.writeFileSync(FILE, JSON.stringify({ projetos: registro }, null, 2));
-  return norm;
+  return r.politica;
 }
 
 // Edita nome, cor, descrição e imagens de um projeto já cadastrado (a pasta/raiz não muda). removerIcone/removerLogo voltam ao cartão com iniciais.

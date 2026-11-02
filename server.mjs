@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { avaliar, compilar, descreverPadrao, validarConfig } from './politica.mjs';
+import { avaliar, compilar, descrever, descreverFabrica, listarPacotes, validarConfig } from './politica.mjs';
 import * as projetos from './projetos.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -198,7 +198,7 @@ const approvals = new Map(); // id -> { id, chatId, tool, resumo, risco, motivo,
 function audit(proj, o) { try { fs.appendFileSync(proj.AUDIT, JSON.stringify({ ts: new Date().toISOString(), ...o }) + '\n'); } catch {} } // dados/<projeto>/auditoria.jsonl
 const autoSessao = new Set(); // chats com "aprovar todos da sessão" (só em memória; some ao reiniciar o servidor). Produção e política 'negar' nunca entram.
 const pendingOf = (chatId) => [...approvals.values()].filter((a) => a.chatId === chatId);
-const approvalView = (a) => ({ id: a.id, tool: a.tool, resumo: a.resumo, risco: a.risco, motivo: a.motivo, criado: a.criado });
+const approvalView = (a) => ({ id: a.id, tool: a.tool, resumo: a.resumo, risco: a.risco, motivo: a.motivo, criado: a.criado, explicacao: a.explicacao, lembravel: a.lembravel });
 function settle(a, behavior, message, quem) {
   if (!approvals.delete(a.id)) return;
   clearTimeout(a.timer);
@@ -208,7 +208,9 @@ function settle(a, behavior, message, quem) {
 function denyAll(chatId, message) { for (const a of pendingOf(chatId)) settle(a, 'deny', message, 'sistema'); }
 function askApproval(chatId, tool, input, v, signal) {
   return new Promise((resolve) => {
-    const a = { id: crypto.randomUUID(), proj: P(), chatId, tool, resumo: v.resumo.slice(0, 4000), risco: v.risco, motivo: v.motivo, criado: Date.now(), resolve };
+    const comando = v.resumo.length <= 4000 && ['Bash', 'PowerShell'].includes(tool) ? v.resumo : '';
+    const a = { id: crypto.randomUUID(), proj: P(), chatId, tool, resumo: v.resumo.slice(0, 4000), risco: v.risco, motivo: v.motivo, criado: Date.now(), resolve,
+      explicacao: descrever(tool, input), comando, lembravel: v.risco === 'normal' && !!comando }; // 'lembravel': pode virar permissão permanente do projeto
     a.timer = setTimeout(() => settle(a, 'deny', 'Sem resposta em 5 minutos; negado.', 'timeout'), APPROVAL_TIMEOUT);
     approvals.set(a.id, a);
     signal?.addEventListener('abort', () => settle(a, 'deny', 'Pedido cancelado.', 'sistema'));
@@ -308,7 +310,8 @@ const server = http.createServer((req, res) => {
   url.pathname = '/api' + m[2];
   return als.run(proj, () => core(req, res, url));
 });
-const validarConfigSeguro = (cfg) => { try { return validarConfig(cfg); } catch { return validarConfig({}); } };
+const atualizarPoliticaDoProjeto = (fn) => projetos.atualizarPolitica(P().id, fn);
+const cfgSegura = (cfg) => { try { return validarConfig(cfg); } catch { return validarConfig({}); } };
 const MIME_ASSET = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf' };
 const existe = (f) => { try { return !!f && fs.statSync(f).isFile(); } catch { return false; } };
 const projetoView = (p) => ({ id: p.id, nome: p.nome, descricao: p.descricao, cor: p.cor, logo: `/logo/${p.id}`, logoLargo: `/logo/${p.id}?tipo=largo`, temIcone: existe(p.icone), temLogo: existe(p.logo) });
@@ -366,7 +369,15 @@ async function core(req, res, url) {
     if (req.method === 'GET') {
       switch (url.pathname) {
         case '/api/projetos': return send(res, 200, { projetos: projetos.listar().map(projetoView) });
-        case '/api/politica': return send(res, 200, { padrao: descreverPadrao(), projeto: validarConfigSeguro(P().politica) });
+        case '/api/permissoes': {
+          const c = cfgSegura(P().politica);
+          return send(res, 200, {
+            fabrica: descreverFabrica(),
+            pacotes: listarPacotes().map((p) => ({ ...p, ligado: c.pacotes.includes(p.id) })),
+            lembrados: c.lembrados.map((l) => { const d = descrever('Bash', { command: l.comando }); return { comando: l.comando, quando: l.quando, resumo: d.resumo, passos: d.passos, nivel: d.nivel, rotulo: d.rotulo }; }),
+            bloqueios: c.bloqueios, producao: c.producao,
+          });
+        }
         case '/api/pendencias': return send(res, 200, { sections: parse(), state: readJson(P().STATE, { items: {} }) });
         case '/api/versao': {
           const f = listDocs();
@@ -414,13 +425,36 @@ async function core(req, res, url) {
         try { return send(res, 200, projetos.editar({ id: String(body.id || ''), nome: body.nome, cor: body.cor, descricao: body.descricao, icone: body.icone, logo: body.logo, removerIcone: body.removerIcone === true, removerLogo: body.removerLogo === true })); }
         catch (e) { return send(res, 400, { erro: e.message }); }
       }
-      case '/api/politica': { // salvar regras do projeto (acrescentam às padrão; nunca as removem)
-        try { return send(res, 200, { projeto: projetos.salvarPolitica(P().id, { negar: body.negar, producao: body.producao, permitir: body.permitir }) }); }
+      case '/api/permissoes/pacote': { // liga/desliga um pacote opcional (testes, build)
+        try { atualizarPoliticaDoProjeto((c) => { const id = String(body.id); c.pacotes = c.pacotes.filter((x) => x !== id); if (body.ligado === true) c.pacotes.push(id); }); return send(res, 200, { ok: true }); }
         catch (e) { return send(res, 400, { erro: e.message }); }
       }
-      case '/api/politica/testar': { // simula um comando contra a política (não executa nada)
-        const v = avaliar(body.tool === 'PowerShell' ? 'PowerShell' : 'Bash', { command: str(body.comando, 4000) }, compilar(P().politica));
-        return send(res, 200, { acao: v.acao, risco: v.risco, motivo: v.motivo, origem: v.origem });
+      case '/api/permissoes/lembrar': { // só comandos comuns: produção e bloqueados nunca viram permissão permanente
+        const comando = str(body.comando, 4001).trim();
+        const v = avaliar('Bash', { command: comando }, compilar(P().politica));
+        if (comando.length > 4000 || v.acao === 'negar' || v.risco === 'producao') return send(res, 400, { erro: v.acao === 'negar' ? `Este comando é bloqueado (${v.motivo}).` : 'Comandos de produção sempre pedem aprovação; não dá para lembrá-los.' });
+        try { atualizarPoliticaDoProjeto((c) => { if (!c.lembrados.some((l) => l.comando === comando)) c.lembrados.push({ comando, quando: new Date().toISOString() }); }); audit(P(), { chat: '-', tool: 'Bash', resumo: comando, risco: 'normal', decisao: 'lembrado', quem: 'dono', motivo: 'permissão permanente do projeto' }); return send(res, 200, { ok: true }); }
+        catch (e) { return send(res, 400, { erro: e.message }); }
+      }
+      case '/api/permissoes/esquecer': {
+        const comando = str(body.comando, 4001).trim();
+        try { atualizarPoliticaDoProjeto((c) => { c.lembrados = c.lembrados.filter((l) => l.comando !== comando); }); audit(P(), { chat: '-', tool: 'Bash', resumo: comando, risco: 'normal', decisao: 'revogado', quem: 'dono', motivo: 'permissão permanente removida' }); return send(res, 200, { ok: true }); }
+        catch (e) { return send(res, 400, { erro: e.message }); }
+      }
+      case '/api/permissoes/regra': { // bloqueio ou cuidado extra por texto
+        const tipo = body.tipo === 'producao' ? 'producao' : 'bloqueios';
+        try { atualizarPoliticaDoProjeto((c) => { c[tipo].push({ texto: str(body.texto, 200), motivo: str(body.motivo, 200) }); }); return send(res, 200, { ok: true }); }
+        catch (e) { return send(res, 400, { erro: e.message }); }
+      }
+      case '/api/permissoes/regra/remover': {
+        const tipo = body.tipo === 'producao' ? 'producao' : 'bloqueios';
+        try { atualizarPoliticaDoProjeto((c) => { c[tipo] = c[tipo].filter((r) => r.texto !== String(body.texto)); }); return send(res, 200, { ok: true }); }
+        catch (e) { return send(res, 400, { erro: e.message }); }
+      }
+      case '/api/permissoes/testar': { // simula um comando contra as permissões (não executa nada)
+        const tool = body.tool === 'PowerShell' ? 'PowerShell' : 'Bash', comando = str(body.comando, 4000);
+        const v = avaliar(tool, { command: comando }, compilar(P().politica));
+        return send(res, 200, { acao: v.acao, risco: v.risco, motivo: v.motivo, origem: v.origem, explicacao: descrever(tool, { command: comando }) });
       }
       case '/api/estado': {
         const { id, status, nota } = body;
@@ -502,8 +536,10 @@ async function core(req, res, url) {
         const a = approvals.get(String(body.id));
         if (!a) return send(res, 404, { erro: 'pedido não existe mais (expirou ou foi cancelado)' });
         const sessao = body.permitir === true && body.sessao === true && a.risco === 'normal'; // produção nunca vira automático
+        const lembrar = body.permitir === true && body.lembrar === true && a.lembravel; // aprova e guarda o texto exato como permissão do projeto
         if (sessao) autoSessao.add(a.chatId);
-        settle(a, body.permitir === true ? 'allow' : 'deny', body.permitir === true ? '' : 'Negado pelo dono.', sessao ? 'dono (sessão)' : 'dono');
+        if (lembrar) { try { projetos.atualizarPolitica(a.proj.id, (c) => { if (!c.lembrados.some((l) => l.comando === a.comando)) c.lembrados.push({ comando: a.comando, quando: new Date().toISOString() }); }); } catch {} }
+        settle(a, body.permitir === true ? 'allow' : 'deny', body.permitir === true ? '' : 'Negado pelo dono.', sessao ? 'dono (sessão)' : lembrar ? 'dono (lembrou)' : 'dono');
         if (sessao) for (const o of pendingOf(a.chatId)) if (o.risco === 'normal') settle(o, 'allow', '', 'sessão');
         return send(res, 200, { ok: true });
       }

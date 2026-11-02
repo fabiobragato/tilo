@@ -110,7 +110,7 @@ const NAV = [
   ['sessoes', 'Sessões', 'pi-history'],
   ['chat', 'Conversar com Claude', 'pi-sparkles'],
   ['arquivos', 'Docs e planejamentos', 'pi-folder-open'],
-  ['politica', 'Política de comandos', 'pi-shield'],
+  ['permissoes', 'Permissões do Claude', 'pi-shield'],
 ];
 function navCount(id) {
   const open = items().filter(isOpen), liveN = S.chats.filter((c) => c.running).length + S.term.filter((x) => !x.oculto && Date.now() - x.mtime < 120000).length;
@@ -325,18 +325,21 @@ function renderApprovals(list) {
   const dlg = $('#adlg'), n = list.length;
   document.title = (n ? `(${n}) Aprovação pendente · ` : '') + BASE_TITLE;
   if (!n) { if (dlg.open) dlg.close(); dlg.dataset.id = ''; return; }
-  const a = list[0], prod = a.risco === 'producao';
+  const a = list[0], prod = a.risco === 'producao', ex = a.explicacao || { resumo: a.resumo, passos: [], nivel: 'desconhecido' };
   if (dlg.dataset.id === a.id && dlg.open) { const c = $('#adlg-n'); if (c) c.textContent = n > 1 ? `1 de ${n} pedidos` : ''; return; }
   dlg.dataset.id = a.id;
   dlg.className = 'adlg' + (prod ? ' prod' : '');
   dlg.innerHTML = `<div class="ahd"><span class="aic"><i class="pi ${prod ? 'pi-exclamation-triangle' : 'pi-shield'}"></i></span>
-      <div class="att"><b id="adlg-t">${prod ? 'Comando que afeta produção ou rede externa' : 'O Claude quer executar um comando'}</b>
-      <span class="asub">${esc(a.tool)}${prod ? ' · ' + esc(a.motivo) : ''}<span id="adlg-n" class="acount">${n > 1 ? `1 de ${n} pedidos` : ''}</span></span></div></div>
-    <div class="abd"><pre class="acode">${esc(a.resumo)}</pre>
-      ${prod ? `<label class="aconf"><input type="checkbox" id="aprov-ok"> Li o comando e entendo que ele pode afetar produção ou enviar dados para fora.</label>` : '<p class="ahint">Confira o comando acima antes de aprovar. Nada roda sem o seu clique.</p>'}</div>
+      <div class="att"><b id="adlg-t">${prod ? 'Atenção: este comando mexe com produção ou internet' : 'O Claude quer fazer isto'}</b>
+      <span class="asub">${esc(a.motivo || '')}<span id="adlg-n" class="acount">${n > 1 ? `1 de ${n} pedidos` : ''}</span></span></div></div>
+    <div class="abd">
+      <div class="aexp">${chipNivel(ex.nivel)}<p>${esc(ex.resumo)}</p>${ex.passos.length > 1 ? `<ol>${ex.passos.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}</div>
+      <div class="aexact"><span>Comando exato que será executado <em>(a explicação acima é um resumo automático)</em></span><pre class="acode">${esc(a.resumo)}</pre></div>
+      ${prod ? `<label class="aconf"><input type="checkbox" id="aprov-ok"> Entendi o que este comando faz e quero que ele rode.</label>` : ''}</div>
     <div class="aft"><button class="btn danger" data-act="negar" data-id="${a.id}"><i class="pi pi-times"></i> Negar</button><span class="sp"></span>
-      ${prod ? '' : `<button class="btn" data-act="aprovar-sessao" data-id="${a.id}" title="Libera os próximos comandos comuns desta conversa. Produção, rede externa e comandos bloqueados continuam pedindo/negando."><i class="pi pi-check-circle"></i> Aprovar todos da sessão</button>`}
-      <button class="btn primary" data-act="aprovar" data-id="${a.id}" ${prod ? 'disabled' : ''}><i class="pi pi-check"></i> Aprovar</button></div>`;
+      ${!prod && a.lembravel ? `<button class="btn" data-act="aprovar-lembrar" data-id="${a.id}" title="Libera só este comando exato, daqui para frente, neste projeto. Você revê em Permissões."><i class="pi pi-bookmark"></i> Aprovar e lembrar</button>` : ''}
+      <button class="btn primary" data-act="aprovar" data-id="${a.id}" ${prod ? 'disabled' : ''}><i class="pi pi-check"></i> Aprovar só desta vez</button></div>
+    ${prod ? '' : `<div class="afoot"><button class="link" data-act="aprovar-sessao" data-id="${a.id}" title="Libera os próximos comandos comuns desta conversa. Produção e comandos bloqueados continuam como estão.">Aprovar tudo desta conversa</button><span>·</span><span>“Lembrar” fica salvo no projeto (veja em <b>Permissões</b>).</span></div>`}`;
   if (!dlg.open) dlg.showModal();
 }
 let polling = null;
@@ -397,7 +400,7 @@ function render() {
   if (q.size && r === 'pendencias') { if (q.get('prio') !== null) S.f.prio = q.get('prio'); if (q.get('stat') !== null) S.f.stat = q.get('stat'); S.f.sec = 0; S.page.pend = 1; history.replaceState(null, '', '#/pendencias'); }
   if (r === 'chat' && q.get('s')) { const id = q.get('s'); S.sel = S.chats.find((c) => c.id === id) ? { kind: 'chat', id } : { kind: 'term', id }; S.chatKey = null; history.replaceState(null, '', '#/chat'); }
   if (r === 'chat') { if (!v.querySelector('.chat-layout')) { v.innerHTML = viewChat(); S.chatKey = null; } if (!S.sel && (S.chats[0])) S.sel = { kind: 'chat', id: S.chats[0].id }; updateChat(); if (S.sel?.kind === 'term' && !S.tx[S.sel.id]) openTerm(S.sel.id); return; }
-  if (r === 'politica') { if (!v.querySelector('.pol-page')) { v.innerHTML = '<div class="pol-page" id="pol-root"><div class="note">Carregando…</div></div>'; loadPolitica(); } return; }
+  if (r === 'permissoes') { if (!v.querySelector('.perm-page')) { v.innerHTML = '<div class="perm-page" id="perm-root"><div class="note">Carregando…</div></div>'; loadPermissoes(); } return; }
   v.innerHTML = r === 'pendencias' ? viewPend() : r === 'sessoes' ? viewSess() : r === 'arquivos' ? viewArq() : viewVisao();
   if (S.focus && r === 'pendencias') document.querySelector(`[data-id="${S.focus}"].item`)?.scrollIntoView({ block: 'center' });
 }
@@ -430,26 +433,27 @@ document.addEventListener('click', async (e) => {
       case 'rename-chat': { const c = curChat(); const v = c && prompt('Nome da conversa:', c.title); if (v) cfg({ title: v }); break; }
       case 'plan': cfg({ plan: !curChat().plan }); break;
       case 'send': send(); break;
-      case 'aprovar': case 'negar': case 'aprovar-sessao': {
+      case 'aprovar': case 'negar': case 'aprovar-sessao': case 'aprovar-lembrar': {
         $('#adlg').querySelectorAll('button').forEach((b) => { b.disabled = true; });
-        try { await api('/api/aprovacao/decidir', { id: d.id, permitir: act !== 'negar', sessao: act === 'aprovar-sessao' }); if (act === 'aprovar-sessao') toast('Comandos comuns aprovados até o fim desta sessão. Produção continua pedindo.'); }
+        try { await api('/api/aprovacao/decidir', { id: d.id, permitir: act !== 'negar', sessao: act === 'aprovar-sessao', lembrar: act === 'aprovar-lembrar' }); if (act === 'aprovar-sessao') toast('Comandos comuns aprovados até o fim desta conversa. Produção continua pedindo.'); if (act === 'aprovar-lembrar') toast('Aprovado e lembrado. Você pode rever em Permissões.'); }
         catch (x) { toast(x.message); }
         $('#adlg').close(); $('#adlg').dataset.id = ''; loadChats();
         break;
       }
       case 'revogar-sessao': await api('/api/aprovacao/sessao', { id: d.id }); toast('Aprovação automática desligada.'); await loadChats(); S.chatKey = null; updateChat(); break;
-      case 'pol-add': { const sec = d.sec; S.pol.projeto[sec].push({ padrao: '', motivo: '' }); renderPolitica(); document.querySelector(`.pol-rows[data-sec="${sec}"] .pol-row:last-child input`)?.focus(); break; }
-      case 'pol-del': S.pol.projeto[d.sec].splice(Number(d.i), 1); S.pol.sujo = true; renderPolitica(); break;
-      case 'pol-save': {
-        const p = S.pol.projeto, limpa = (l) => l.filter((r) => r.padrao.trim());
-        try { S.pol.projeto = (await api('/api/politica', { negar: limpa(p.negar), producao: limpa(p.producao), permitir: limpa(p.permitir) })).projeto; S.pol.sujo = false; S.pol.erro = ''; toast('Política salva. Vale já para os próximos comandos.'); }
-        catch (x) { S.pol.erro = x.message; }
-        renderPolitica(); break;
+      case 'perm-pacote': { try { await api('/api/permissoes/pacote', { id: d.id, ligado: el.checked }); toast(el.checked ? 'Pacote ligado.' : 'Pacote desligado.'); } catch (x) { toast(x.message); } await loadPermissoes(); break; }
+      case 'perm-esquecer': { const c = S.perm.lembrados[Number(d.i)]?.comando; if (c && confirm('Remover esta permissão? Da próxima vez o Claude vai perguntar de novo.')) { await api('/api/permissoes/esquecer', { comando: c }); toast('Permissão removida.'); await loadPermissoes(); } break; }
+      case 'perm-add': {
+        const texto = $(`#perm-${d.tipo}-texto`).value.trim(), motivo = $(`#perm-${d.tipo}-motivo`).value.trim();
+        if (!texto) { toast('Escreva o texto a procurar nos comandos.'); break; }
+        try { await api('/api/permissoes/regra', { tipo: d.tipo, texto, motivo }); S.perm.erro = ''; toast('Regra adicionada.'); } catch (x) { S.perm.erro = x.message; }
+        await loadPermissoes(); break;
       }
-      case 'pol-test': {
-        const c = $('#pol-cmd').value.trim(); if (!c) break;
-        try { S.pol.teste = { cmd: c, ...(await api('/api/politica/testar', { comando: c })) }; } catch (x) { S.pol.teste = { cmd: c, erro: x.message }; }
-        renderPolitica(); $('#pol-cmd').focus(); break;
+      case 'perm-del': { const r = S.perm[d.tipo === 'producao' ? 'producao' : 'bloqueios'][Number(d.i)]; if (r) { await api('/api/permissoes/regra/remover', { tipo: d.tipo, texto: r.texto }); await loadPermissoes(); } break; }
+      case 'perm-test': {
+        const c = $('#perm-cmd').value.trim(); if (!c) break;
+        try { S.perm.teste = { cmd: c, ...(await api('/api/permissoes/testar', { comando: c })) }; } catch (x) { S.perm.teste = { cmd: c, erro: x.message }; }
+        renderPermissoes(); $('#perm-cmd').focus(); break;
       }
       case 'stop': api('/api/chat/cancelar', { id: curChat().id }); break;
       case 'quick': { const ta = $('#msg'); if (ta) send(d.p); break; }
@@ -469,44 +473,51 @@ document.addEventListener('click', async (e) => {
     }
   } catch (x) { toast(x.message); }
 });
-document.addEventListener('input', (e) => { // edição das regras de política (os campos guardam o texto em S.pol)
-  const el = e.target.closest('[data-pol]'); if (!el || !S.pol) return;
-  S.pol.projeto[el.dataset.sec][Number(el.dataset.i)][el.dataset.pol] = el.value; S.pol.sujo = true;
-  const b = $('#pol-save'); if (b) b.disabled = false;
-});
-document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'pol-cmd') { e.preventDefault(); document.querySelector('[data-act="pol-test"]').click(); } });
-const POL_SEC = {
-  negar: ['Bloquear sempre', 'pi-ban', 'O Claude nunca executa e nem chega a perguntar. Ex.: terraform\\s+destroy'],
-  producao: ['Tratar como produção', 'pi-exclamation-triangle', 'Pede aprovação em vermelho, com confirmação extra. Ex.: \\bkubectl\\b'],
-  permitir: ['Liberar sem perguntar', 'pi-check-circle', 'Só comando inteiro e de leitura: comece com ^ e termine com $. Ex.: ^npm run (test|lint)$'],
-};
-async function loadPolitica() {
-  try { const g = await api('/api/politica'); S.pol = { padrao: g.padrao, projeto: g.projeto, sujo: false, erro: '', teste: null }; }
-  catch (x) { S.pol = null; const r = $('#pol-root'); if (r) r.innerHTML = `<div class="note">Não consegui carregar: ${esc(x.message)}</div>`; return; }
-  renderPolitica();
+document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'perm-cmd') { e.preventDefault(); document.querySelector('[data-act="perm-test"]').click(); } });
+const NIVEL = { leitura: ['Só consulta', 'lv-ok'], altera: ['Altera arquivos', 'lv-warn'], rede: ['Usa a internet', 'lv-warn'], servidor: ['Mexe em servidor/produção', 'lv-bad'], desconhecido: ['Não reconhecido', 'lv-warn'] };
+const chipNivel = (n) => { const [t, c] = NIVEL[n] || NIVEL.desconhecido; return `<span class="lv ${c}">${t}</span>`; };
+const quando = (iso) => { try { return new Date(iso).toLocaleDateString('pt-BR'); } catch { return ''; } };
+async function loadPermissoes() {
+  try { const g = await api('/api/permissoes'); S.perm = { ...g, erro: S.perm?.erro || '', teste: S.perm?.teste || null }; }
+  catch (x) { S.perm = null; const r = $('#perm-root'); if (r) r.innerHTML = `<div class="note">Não consegui carregar: ${esc(x.message)}</div>`; return; }
+  renderPermissoes();
 }
-function renderPolitica() {
-  const root = $('#pol-root'); if (!root || !S.pol) return;
-  const P = S.pol, t = P.teste;
-  const res = !t ? '' : t.erro ? `<div class="pol-res bad">${esc(t.erro)}</div>` : (() => {
-    const [cls, txt] = t.acao === 'negar' ? ['bad', 'Bloqueado'] : t.acao === 'permitir' ? ['ok', 'Liberado sem perguntar'] : t.risco === 'producao' ? ['bad', 'Pede aprovação (PRODUÇÃO, confirmação extra)'] : ['warn', 'Pede aprovação'];
-    return `<div class="pol-res ${cls}"><b>${txt}</b> · ${esc(t.motivo)} <span class="muted">(regra ${esc(t.origem)})</span><code>${esc(t.cmd)}</code></div>`;
+function renderPermissoes() {
+  const root = $('#perm-root'); if (!root || !S.perm) return;
+  const P = S.perm, t = P.teste;
+  const lista = (itens, vazio) => itens.length ? `<ul class="perm-list">${itens.map((x) => `<li><b>${esc(x.titulo)}</b><span class="muted">${esc(x.descricao)}</span></li>`).join('')}</ul>` : `<div class="muted small">${vazio}</div>`;
+  const res = !t ? '' : t.erro ? `<div class="perm-res bad">${esc(t.erro)}</div>` : (() => {
+    const [cls, txt] = t.acao === 'negar' ? ['bad', 'Bloqueado: o Claude não consegue rodar'] : t.acao === 'permitir' ? ['ok', 'Liberado: roda sem perguntar'] : t.risco === 'producao' ? ['bad', 'Pede sua aprovação (com atenção redobrada: produção)'] : ['warn', 'Pede sua aprovação'];
+    return `<div class="perm-res ${cls}"><b>${txt}</b><span>${esc(t.motivo)} · ${t.origem === 'projeto' ? 'regra deste projeto' : 'regra de fábrica'}</span><span class="what">${chipNivel(t.explicacao.nivel)} ${esc(t.explicacao.resumo)}</span></div>`;
   })();
-  root.innerHTML = `<div class="page-head"><div><h1 class="page-title">Política de comandos</h1>
-    <p class="page-sub">O que o Claude pode fazer neste projeto. As <b>regras padrão</b> valem para todos os projetos e não podem ser removidas; aqui você <b>acrescenta</b> regras só deste projeto. Ordem: bloquear &gt; produção &gt; liberar &gt; perguntar.</p></div>
-    <button class="btn primary" id="pol-save" data-act="pol-save" ${P.sujo ? '' : 'disabled'}><i class="pi pi-save"></i> Salvar política</button></div>
-  ${P.erro ? `<div class="pol-res bad">${esc(P.erro)}</div>` : ''}
-  <div class="card pol-test"><div class="card-head"><span class="ico"><i class="pi pi-play"></i></span><h3>Testar um comando <span class="muted">(só simula, não executa nada)</span></h3></div>
-    <div class="card-body"><div class="pol-testrow"><input id="pol-cmd" class="inp" placeholder="Ex.: npm run test   ou   terraform destroy" value="${esc(t?.cmd || '')}" autocomplete="off"><button class="btn" data-act="pol-test"><i class="pi pi-search"></i> Testar</button></div>${res}</div></div>
-  ${['negar', 'producao', 'permitir'].map((sec) => {
-    const [titulo, icone, dica] = POL_SEC[sec], rows = P.projeto[sec];
-    return `<div class="card pol-card"><div class="card-head"><span class="ico"><i class="pi ${icone}"></i></span><h3>${titulo}</h3><span class="muted small">${rows.length} ${rows.length === 1 ? 'regra própria' : 'regras próprias'}</span></div><div class="card-body">
-      <p class="muted small">${esc(dica)}</p>
-      <div class="pol-rows" data-sec="${sec}">${rows.map((r, i) => `<div class="pol-row"><input class="inp mono" data-pol="padrao" data-sec="${sec}" data-i="${i}" value="${esc(r.padrao)}" placeholder="expressão regular" aria-label="Padrão"><input class="inp" data-pol="motivo" data-sec="${sec}" data-i="${i}" value="${esc(r.motivo)}" placeholder="motivo (aparece para você)" aria-label="Motivo"><button class="icon-btn danger" data-act="pol-del" data-sec="${sec}" data-i="${i}" title="Remover regra" aria-label="Remover regra"><i class="pi pi-trash"></i></button></div>`).join('') || '<div class="muted small">Nenhuma regra própria: valem só as regras padrão.</div>'}</div>
-      <button class="btn sm" data-act="pol-add" data-sec="${sec}"><i class="pi pi-plus"></i> Adicionar regra</button>
-      <details class="pol-def"><summary>Regras padrão (${P.padrao[sec].length}, sempre ativas)</summary><ul>${P.padrao[sec].map((r) => `<li><code>${esc(r.padrao)}</code> <span class="muted">${esc(r.motivo)}</span></li>`).join('')}</ul></details>
-    </div></div>`;
-  }).join('')}`;
+  const regra = (tipo, titulo, ajuda, itens, ph) => `<div class="perm-sub"><h4>${titulo}</h4><p class="muted small">${ajuda}</p>
+    ${itens.length ? `<ul class="perm-list">${itens.map((r, i) => `<li><b>Comandos que contenham “${esc(r.texto)}”</b><span class="muted">${esc(r.motivo)}</span><button class="btn sm" data-act="perm-del" data-tipo="${tipo}" data-i="${i}"><i class="pi pi-trash"></i> Remover</button></li>`).join('')}</ul>` : ''}
+    <div class="perm-add"><input class="inp" id="perm-${tipo}-texto" placeholder="${ph}" maxlength="80" aria-label="Texto a procurar"><input class="inp" id="perm-${tipo}-motivo" placeholder="Motivo (opcional)" maxlength="120" aria-label="Motivo"><button class="btn sm" data-act="perm-add" data-tipo="${tipo}"><i class="pi pi-plus"></i> Adicionar</button></div></div>`;
+  root.innerHTML = `<div class="page-head"><div><h1 class="page-title">Permissões do Claude</h1>
+    <p class="page-sub">Aqui você controla o que o Claude pode fazer <b>sozinho</b> neste projeto. Tudo que não está liberado, ele <b>pergunta antes</b> (aparece um aviso na tela). Dica: quando o aviso aparecer, clique em <b>Aprovar e lembrar</b> e o comando entra na lista abaixo.</p></div></div>
+  ${P.erro ? `<div class="perm-res bad">${esc(P.erro)}</div>` : ''}
+
+  <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-check-circle"></i></span><h3>Liberado de fábrica</h3><span class="lv lv-ok">Só consulta</span></div><div class="card-body">
+    <p class="muted small">Estes comandos só consultam informações, não alteram nada. O Claude roda sem perguntar.</p><details class="perm-fab"><summary>Ver tudo o que está liberado (${P.fabrica.permitir.length})</summary>${lista(P.fabrica.permitir, '')}</details></div></div>
+
+  <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-box"></i></span><h3>Pacotes opcionais</h3></div><div class="card-body">
+    <p class="muted small">Ligue se quiser que o Claude faça isso sem perguntar. Vêm desligados porque executam o código do projeto.</p>
+    ${P.pacotes.map((k) => `<label class="perm-pack"><input type="checkbox" class="sw" data-act="perm-pacote" data-id="${k.id}" ${k.ligado ? 'checked' : ''}><span><b>${esc(k.titulo)}</b><span class="muted">${esc(k.descricao)}</span><span class="muted small">Exemplos: ${k.exemplos.map(esc).join(' · ')}</span></span></label>`).join('')}</div></div>
+
+  <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-bookmark"></i></span><h3>Comandos que você liberou</h3><span class="muted small">${P.lembrados.length}</span></div><div class="card-body">
+    <p class="muted small">Quando o Claude pedir um comando novo, use <b>Aprovar e lembrar</b>. Só este comando exato fica liberado. Remova quando quiser.</p>
+    ${P.lembrados.length ? `<ul class="perm-list">${P.lembrados.map((l, i) => `<li><span class="top">${chipNivel(l.nivel)}<b>${esc(l.resumo)}</b></span>${l.passos.length > 1 ? `<ol class="muted small">${l.passos.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}<code>${esc(l.comando)}</code><span class="muted small">Liberado em ${quando(l.quando)}</span><button class="btn sm" data-act="perm-esquecer" data-i="${i}"><i class="pi pi-times"></i> Remover permissão</button></li>`).join('')}</ul>` : '<div class="muted small">Nada ainda. Eles vão aparecendo aqui conforme você aprova.</div>'}</div></div>
+
+  <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-ban"></i></span><h3>Nunca permitido</h3><span class="lv lv-bad">Bloqueado</span></div><div class="card-body">
+    <p class="muted small">O Claude não consegue rodar isso, nem pedindo. Vale para todos os projetos e não dá para desligar.</p><details class="perm-fab"><summary>Ver tudo o que está bloqueado (${P.fabrica.negar.length})</summary>${lista(P.fabrica.negar, '')}</details>
+    ${regra('bloqueios', 'Bloqueios só deste projeto', 'Bloqueia qualquer comando que contenha o texto escrito.', P.bloqueios, 'Ex.: terraform destroy')}</div></div>
+
+  <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-exclamation-triangle"></i></span><h3>Sempre pede atenção redobrada (produção)</h3></div><div class="card-body">
+    <p class="muted small">Aparece em vermelho e exige uma confirmação extra a cada vez. Nunca pode ser liberado de vez.</p><details class="perm-fab"><summary>Ver tudo o que pede atenção redobrada (${P.fabrica.producao.length})</summary>${lista(P.fabrica.producao, '')}</details>
+    ${regra('producao', 'Mais itens só deste projeto', 'Trata como produção qualquer comando que contenha o texto escrito.', P.producao, 'Ex.: kubectl')}</div></div>
+
+  <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-play"></i></span><h3>Testar um comando <span class="muted small">(só simula, não executa nada)</span></h3></div><div class="card-body">
+    <div class="perm-testrow"><input id="perm-cmd" class="inp" placeholder="Cole aqui um comando para ver o que aconteceria" value="${esc(t?.cmd || '')}" autocomplete="off"><button class="btn" data-act="perm-test"><i class="pi pi-search"></i> Testar</button></div>${res}</div></div>`;
 }
 document.addEventListener('change', async (e) => {
   const el = e.target.closest('[data-chg]'); if (!el) return;
