@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { validarConfig } from './politica.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FILE = path.join(HERE, 'projetos.json');
@@ -23,7 +24,7 @@ function resolver(r) {
   const abs = (p) => (p ? path.resolve(HERE, p) : '');
   return {
     id: r.id, nome: String(r.nome || r.id), descricao: String(r.descricao || ''), cor: COR.test(r.cor || '') ? r.cor : '#5b5cf0',
-    icone: abs(r.icone), logo: abs(r.logo),
+    icone: abs(r.icone), logo: abs(r.logo), politica: r.politica || {}, // regras de comando próprias (ver politica.mjs)
     ROOT, README: path.join(ROOT, r.pendencias || 'pendencias/README.md'),
     STATE: path.join(dir, 'estado.json'), CHATS: path.join(dir, 'chats.json'), META: path.join(dir, 'sessoes-meta.json'), AUDIT: path.join(dir, 'auditoria.jsonl'),
     READABLE_DIRS: Array.isArray(r.pastasLegiveis) && r.pastasLegiveis.length ? r.pastasLegiveis : PASTAS_PADRAO,
@@ -104,7 +105,7 @@ function salvarImagens(id, { icone, logo }) {
   return out;
 }
 
-export function adicionar({ nome, raiz, cor, estruturaBase, icone, logo }) {
+export function adicionar({ nome, raiz, cor, descricao, estruturaBase, icone, logo }) {
   nome = String(nome || '').trim();
   if (!nome || nome.length > 60) throw new Error('nome inválido (1 a 60 caracteres)');
   if (typeof raiz !== 'string' || !path.isAbsolute(raiz)) throw new Error('informe o caminho completo da pasta do projeto');
@@ -118,10 +119,46 @@ export function adicionar({ nome, raiz, cor, estruturaBase, icone, logo }) {
   if (registro.some((r) => path.resolve(r.raiz).toLowerCase() === abs.toLowerCase())) throw new Error('essa pasta já está cadastrada');
   let id = slug(nome) || 'projeto', n = 1;
   while (registro.some((r) => r.id === id)) id = `${slug(nome) || 'projeto'}-${++n}`;
-  const novo = { id, nome, raiz: abs, cor: cor || '#5b5cf0', descricao: '', ...salvarImagens(id, { icone: imgIcone, logo: imgLogo }) };
+  if (descricao !== undefined && String(descricao).length > 140) throw new Error('descrição muito longa (máx. 140 caracteres)');
+  const novo = { id, nome, raiz: abs, cor: cor || '#5b5cf0', descricao: String(descricao || '').trim(), ...salvarImagens(id, { icone: imgIcone, logo: imgLogo }) };
   const criado = estruturaBase ? estrutura(abs, nome) : [];
   fs.writeFileSync(FILE, JSON.stringify({ projetos: [...registro, novo] }, null, 2));
   return { id, criado };
+}
+
+// Política de comandos do projeto: valida (lança Error em português) e grava no registro.
+export function salvarPolitica(id, cfg) {
+  const norm = validarConfig(cfg);
+  const registro = lerRegistro();
+  const r = registro.find((x) => x.id === id);
+  if (!r) throw new Error('projeto não encontrado');
+  r.politica = norm;
+  fs.writeFileSync(FILE, JSON.stringify({ projetos: registro }, null, 2));
+  return norm;
+}
+
+// Edita nome, cor, descrição e imagens de um projeto já cadastrado (a pasta/raiz não muda). removerIcone/removerLogo voltam ao cartão com iniciais.
+export function editar({ id, nome, cor, descricao, icone, logo, removerIcone, removerLogo }) {
+  const registro = lerRegistro();
+  const r = registro.find((x) => x.id === id);
+  if (!r) throw new Error('projeto não encontrado');
+  if (nome !== undefined) { nome = String(nome).trim(); if (!nome || nome.length > 60) throw new Error('nome inválido (1 a 60 caracteres)'); }
+  if (cor !== undefined && !COR.test(cor)) throw new Error('cor inválida (use #rrggbb)');
+  if (descricao !== undefined && String(descricao).length > 140) throw new Error('descrição muito longa (máx. 140 caracteres)');
+  const imgIcone = decodificarImagem(icone, 'Ícone'), imgLogo = decodificarImagem(logo, 'Logo largo'); // valida antes de tocar em arquivos
+  if (nome !== undefined) r.nome = nome;
+  if (cor !== undefined) r.cor = cor;
+  if (descricao !== undefined) r.descricao = String(descricao).trim();
+  Object.assign(r, salvarImagens(id, { icone: imgIcone, logo: imgLogo }));
+  for (const [flag, campo] of [[removerIcone, 'icone'], [removerLogo, 'logo']]) {
+    if (flag === true && !(campo === 'icone' ? imgIcone : imgLogo) && r[campo]) {
+      const f = path.resolve(HERE, r[campo]);
+      if (f.startsWith(path.join(HERE, 'logos') + path.sep)) { try { fs.unlinkSync(f); } catch {} } // só apaga dentro de logos/
+      delete r[campo];
+    }
+  }
+  fs.writeFileSync(FILE, JSON.stringify({ projetos: registro }, null, 2));
+  return { id };
 }
 
 // Ícone do projeto: arquivo configurado ou um cartão SVG com as iniciais (sempre há algo para mostrar).

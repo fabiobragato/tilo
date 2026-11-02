@@ -20,26 +20,27 @@
   <div class="info" id="info" aria-live="polite"></div>
 </main>
 
-<footer class="hints"><span><kbd>←</kbd><kbd>→</kbd> navegar</span><span><kbd>Enter</kbd> abrir</span><span><kbd>N</kbd> novo projeto</span></footer>
+<footer class="hints"><span><kbd>←</kbd><kbd>→</kbd> navegar</span><span><kbd>Enter</kbd> abrir</span><span><kbd>E</kbd> editar</span><span><kbd>N</kbd> novo projeto</span></footer>
 
 <dialog id="novo" class="novo" aria-labelledby="novo-t">
   <form method="dialog" id="novo-form" autocomplete="off">
-    <div class="nh"><span class="nic"><i class="pi pi-plus"></i></span><div><b id="novo-t">Novo projeto</b><span>Adiciona o projeto à Central. Os dados dele ficam aqui, não dentro da pasta do projeto.</span></div></div>
+    <div class="nh"><span class="nic"><i class="pi pi-plus"></i></span><div><b id="novo-t">Novo projeto</b><span id="novo-sub">Adiciona o projeto à Central. Os dados dele ficam aqui, não dentro da pasta do projeto.</span></div></div>
     <label>Nome<input id="n-nome" required maxlength="60" placeholder="Ex.: Meu Novo App"></label>
-    <label>Pasta do projeto<input id="n-raiz" required placeholder="E:\estudos\meu-novo-app"><small>Caminho completo de uma pasta que já existe.</small></label>
+    <label>Descrição <small>(opcional, aparece embaixo do nome na seleção)</small><input id="n-desc" maxlength="140" placeholder="Ex.: Plataforma de dados e inteligência de CNPJ"></label>
+    <label class="so-novo">Pasta do projeto<input id="n-raiz" required placeholder="E:\estudos\meu-novo-app"><small>Caminho completo de uma pasta que já existe.</small></label>
     <div class="row"><label>Cor<input id="n-cor" type="color" value="#5b5cf0"></label>
-      <label class="chk"><input id="n-base" type="checkbox" checked> Criar estrutura base se faltar<small><code>pendencias/</code>, <code>docs/</code>, <code>planning/</code> e <code>CLAUDE.md</code>. Nunca sobrescreve o que já existe.</small></label></div>
+      <label class="chk so-novo"><input id="n-base" type="checkbox" checked> Criar estrutura base se faltar<small><code>pendencias/</code>, <code>docs/</code>, <code>planning/</code> e <code>CLAUDE.md</code>. Nunca sobrescreve o que já existe.</small></label></div>
     <div class="imgs">
       <div class="img"><span class="lbl">Ícone <em>(quadrado)</em></span>
-        <label class="drop" id="d-icone"><input id="n-icone" type="file" accept="image/png,image/jpeg,image/webp" hidden><span class="prev sq" id="p-icone"><i class="pi pi-image"></i></span><span class="t">Escolher imagem</span></label>
+        <label class="drop" id="d-icone"><input id="n-icone" type="file" accept="image/png,image/jpeg,image/webp" hidden><span class="prev sq" id="p-icone"><i class="pi pi-image"></i></span><span class="t">Escolher imagem</span></label><button type="button" class="rm" id="rm-icone" hidden>Remover imagem</button>
         <small>Aparece no tile da seleção. Ideal 512×512; se não for quadrada, é cortada.</small></div>
       <div class="img"><span class="lbl">Logo largo <em>(opcional)</em></span>
-        <label class="drop" id="d-logo"><input id="n-logo" type="file" accept="image/png,image/jpeg,image/webp" hidden><span class="prev wide" id="p-logo"><i class="pi pi-image"></i></span><span class="t">Escolher imagem</span></label>
+        <label class="drop" id="d-logo"><input id="n-logo" type="file" accept="image/png,image/jpeg,image/webp" hidden><span class="prev wide" id="p-logo"><i class="pi pi-image"></i></span><span class="t">Escolher imagem</span></label><button type="button" class="rm" id="rm-logo" hidden>Remover imagem</button>
         <small>Aparece no menu lateral do painel. Sem ele, usa o ícone.</small></div>
     </div>
     <p class="hint">PNG, JPG ou WEBP, até 1,5 MB. Sem imagem, o tile mostra as iniciais do projeto.</p>
     <p class="err" id="n-err" role="alert" hidden></p>
-    <div class="nf"><button type="button" class="b" id="n-cancel">Cancelar</button><button type="submit" class="b primary" id="n-ok"><i class="pi pi-check"></i> Adicionar</button></div>
+    <div class="nf"><button type="button" class="b" id="n-cancel">Cancelar</button><button type="submit" class="b primary" id="n-ok"><i class="pi pi-check"></i> <span id="n-ok-t">Adicionar</span></button></div>
   </form>
 </dialog>
 <div class="toast" id="toast" role="status"></div>

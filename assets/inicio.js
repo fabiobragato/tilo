@@ -1,7 +1,7 @@
 'use strict';
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const S = { projetos: [], sel: 0 };
+const S = { projetos: [], sel: 0, v: Date.now(), editId: '' };
 
 async function api(path, body) {
   const r = await fetch(path, { method: body ? 'POST' : 'GET', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
@@ -17,10 +17,10 @@ clock(); setInterval(clock, 15000);
 const total = () => S.projetos.length + 1; // +1 = tile "novo projeto"
 function render() {
   const rail = $('#rail');
-  rail.innerHTML = S.projetos.map((p, i) => `<button class="tile ${i === S.sel ? 'on' : ''}" role="option" data-i="${i}" aria-label="${esc(p.nome)}" style="--c:${esc(p.cor)}"><img src="${esc(p.logo)}" alt=""></button>`).join('')
+  rail.innerHTML = S.projetos.map((p, i) => `<button class="tile ${i === S.sel ? 'on' : ''}" role="option" data-i="${i}" aria-label="${esc(p.nome)}" style="--c:${esc(p.cor)}"><img src="${esc(p.logo)}?v=${S.v}" alt=""></button>`).join('')
     + `<button class="tile add ${S.sel === S.projetos.length ? 'on' : ''}" role="option" data-i="${S.projetos.length}" aria-label="Novo projeto"><i class="pi pi-plus"></i></button>`;
   const p = S.projetos[S.sel];
-  $('#info').innerHTML = p ? `<h1>${esc(p.nome)}</h1><p>${esc(p.descricao || 'Abrir pendências, sessões e conversas')}</p>` : '<h1>Novo projeto</h1><p>Adicione outro projeto à Central</p>';
+  $('#info').innerHTML = p ? `<h1>${esc(p.nome)}</h1><p>${esc(p.descricao || 'Abrir pendências, sessões e conversas')}</p><button class="b" id="edit-btn"><i class="pi pi-pencil"></i> Editar</button>` : '<h1>Novo projeto</h1><p>Adicione outro projeto à Central</p>';
   rail.querySelector('.tile.on')?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
 }
 function abrir(i) {
@@ -37,43 +37,73 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowLeft') { e.preventDefault(); mover(-1); }
   else if (e.key === 'Enter') { e.preventDefault(); abrir(S.sel); }
   else if (e.key.toLowerCase() === 'n') { e.preventDefault(); novo(); }
+  else if (e.key.toLowerCase() === 'e' && S.projetos[S.sel]) { e.preventDefault(); editar(S.projetos[S.sel]); }
   else if (/^[1-9]$/.test(e.key) && S.projetos[Number(e.key) - 1]) abrir(Number(e.key) - 1);
 });
 
 // ---------- novo projeto ----------
-const IMG = { icone: '', logo: '' }; // data URLs escolhidas no formulário
+const IMG = { icone: '', logo: '', rmIcone: false, rmLogo: false }; // data URLs escolhidas no formulário + remoções pedidas
 const MAX_IMG = 1_500_000;
+const K = (k) => k === 'icone' ? 'rmIcone' : 'rmLogo';
 function limparImagens() {
-  IMG.icone = IMG.logo = '';
-  for (const k of ['icone', 'logo']) { $(`#p-${k}`).innerHTML = '<i class="pi pi-image"></i>'; $(`#d-${k} .t`).textContent = 'Escolher imagem'; }
+  IMG.icone = IMG.logo = ''; IMG.rmIcone = IMG.rmLogo = false;
+  for (const k of ['icone', 'logo']) { $(`#p-${k}`).innerHTML = '<i class="pi pi-image"></i>'; $(`#d-${k} .t`).textContent = 'Escolher imagem'; $(`#rm-${k}`).hidden = true; }
 }
+function mostrarImagem(k, src, nome) { $(`#p-${k}`).innerHTML = `<img alt="" src="${src}">`; $(`#d-${k} .t`).textContent = nome; $(`#rm-${k}`).hidden = false; IMG[K(k)] = false; }
 function lerImagem(k) {
   const f = $(`#n-${k}`).files[0];
-  if (!f) { IMG[k] = ''; $(`#p-${k}`).innerHTML = '<i class="pi pi-image"></i>'; $(`#d-${k} .t`).textContent = 'Escolher imagem'; return; }
+  if (!f) return;
   if (!/^image\/(png|jpeg|webp)$/.test(f.type)) { $('#n-err').textContent = 'Use uma imagem PNG, JPG ou WEBP.'; $('#n-err').hidden = false; $(`#n-${k}`).value = ''; return; }
   if (f.size > MAX_IMG) { $('#n-err').textContent = 'A imagem passa de 1,5 MB. Escolha uma menor.'; $('#n-err').hidden = false; $(`#n-${k}`).value = ''; return; }
   $('#n-err').hidden = true;
   const r = new FileReader();
-  r.onload = () => { IMG[k] = String(r.result); $(`#p-${k}`).innerHTML = `<img alt="" src="${IMG[k]}">`; $(`#d-${k} .t`).textContent = f.name; };
+  r.onload = () => { IMG[k] = String(r.result); mostrarImagem(k, IMG[k], f.name); };
   r.readAsDataURL(f);
 }
 $('#n-icone').addEventListener('change', () => lerImagem('icone'));
 $('#n-logo').addEventListener('change', () => lerImagem('logo'));
-function novo() { $('#novo-form').reset(); limparImagens(); $('#n-err').hidden = true; $('#novo').showModal(); $('#n-nome').focus(); }
+for (const k of ['icone', 'logo']) $(`#rm-${k}`).addEventListener('click', () => { // remover = voltar ao cartão com iniciais
+  IMG[k] = ''; $(`#n-${k}`).value = ''; $(`#p-${k}`).innerHTML = '<i class="pi pi-image"></i>'; $(`#d-${k} .t`).textContent = 'Escolher imagem'; $(`#rm-${k}`).hidden = true; IMG[K(k)] = !!S.editId;
+});
+function abrirForm(modoEdicao) {
+  $('#novo').classList.toggle('edit', modoEdicao);
+  $('#n-raiz').required = !modoEdicao;
+  $('#novo-t').textContent = modoEdicao ? 'Editar projeto' : 'Novo projeto';
+  $('.nic i').className = 'pi ' + (modoEdicao ? 'pi-pencil' : 'pi-plus');
+  $('#novo-sub').textContent = modoEdicao ? 'Altera nome, descrição, cor e imagens. A pasta do projeto não muda.' : 'Adiciona o projeto à Central. Os dados dele ficam aqui, não dentro da pasta do projeto.';
+  $('#n-ok-t').textContent = modoEdicao ? 'Salvar' : 'Adicionar';
+  $('#n-err').hidden = true; $('#novo').showModal(); $('#n-nome').focus();
+}
+function novo() { S.editId = ''; $('#novo-form').reset(); limparImagens(); abrirForm(false); }
+function editar(p) {
+  S.editId = p.id; $('#novo-form').reset(); limparImagens();
+  $('#n-nome').value = p.nome; $('#n-desc').value = p.descricao || ''; $('#n-cor').value = p.cor;
+  if (p.temIcone) mostrarImagem('icone', `${p.logo}?v=${S.v}`, 'Imagem atual (escolha outra para trocar)');
+  if (p.temLogo) mostrarImagem('logo', `${p.logoLargo}&v=${S.v}`, 'Imagem atual (escolha outra para trocar)');
+  IMG.rmIcone = IMG.rmLogo = false;
+  abrirForm(true);
+}
+$('#info').addEventListener('click', (e) => { if (e.target.closest('#edit-btn')) editar(S.projetos[S.sel]); });
 $('#n-cancel').addEventListener('click', () => $('#novo').close());
 $('#novo-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const ok = $('#n-ok'); ok.disabled = true; $('#n-err').hidden = true;
   try {
-    const r = await api('/api/projetos', { nome: $('#n-nome').value, raiz: $('#n-raiz').value.trim(), cor: $('#n-cor').value, estruturaBase: $('#n-base').checked, icone: IMG.icone, logo: IMG.logo });
+    const dados = { nome: $('#n-nome').value, descricao: $('#n-desc').value, cor: $('#n-cor').value, icone: IMG.icone, logo: IMG.logo };
+    const r = S.editId
+      ? await api('/api/projetos/editar', { id: S.editId, ...dados, removerIcone: IMG.rmIcone, removerLogo: IMG.rmLogo })
+      : await api('/api/projetos', { ...dados, raiz: $('#n-raiz').value.trim(), estruturaBase: $('#n-base').checked });
+    if (S.editId) r.id = S.editId, r.criado = [];
+    S.v = Date.now();
     $('#novo').close();
     await carregar();
     S.sel = Math.max(0, S.projetos.findIndex((p) => p.id === r.id)); render();
-    toast(r.criado.length ? `Projeto adicionado. Criado: ${r.criado.join(', ')}` : 'Projeto adicionado.');
+    toast(S.editId ? 'Projeto atualizado.' : r.criado.length ? `Projeto adicionado. Criado: ${r.criado.join(', ')}` : 'Projeto adicionado.');
   } catch (x) { $('#n-err').textContent = x.message; $('#n-err').hidden = false; }
   ok.disabled = false;
 });
 
 async function carregar() { S.projetos = (await api('/api/projetos')).projetos; if (S.sel > S.projetos.length) S.sel = 0; render(); }
-if (location.hash === '#novo') carregar().then(novo).catch(() => {}); // atalho: /#novo abre o cadastro
+if (location.hash === '#novo') carregar().then(novo).catch(() => {}); // atalhos: /#novo abre o cadastro, /#editar edita o projeto selecionado
+else if (location.hash === '#editar') carregar().then(() => S.projetos[S.sel] && editar(S.projetos[S.sel])).catch(() => {});
 else carregar().catch((x) => { $('#info').innerHTML = `<p class="empty">Não consegui carregar os projetos: ${esc(x.message)}</p>`; });

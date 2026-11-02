@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { avaliar } from './politica.mjs';
+import { avaliar, compilar, descreverPadrao, validarConfig } from './politica.mjs';
 import * as projetos from './projetos.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -308,8 +308,10 @@ const server = http.createServer((req, res) => {
   url.pathname = '/api' + m[2];
   return als.run(proj, () => core(req, res, url));
 });
+const validarConfigSeguro = (cfg) => { try { return validarConfig(cfg); } catch { return validarConfig({}); } };
 const MIME_ASSET = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.woff': 'font/woff', '.ttf': 'font/ttf' };
-const projetoView = (p) => ({ id: p.id, nome: p.nome, descricao: p.descricao, cor: p.cor, logo: `/logo/${p.id}`, logoLargo: `/logo/${p.id}?tipo=largo` });
+const existe = (f) => { try { return !!f && fs.statSync(f).isFile(); } catch { return false; } };
+const projetoView = (p) => ({ id: p.id, nome: p.nome, descricao: p.descricao, cor: p.cor, logo: `/logo/${p.id}`, logoLargo: `/logo/${p.id}?tipo=largo`, temIcone: existe(p.icone), temLogo: existe(p.logo) });
 function pagina(res, arquivo, subs, nonce) {
   let html = fs.readFileSync(path.join(HERE, arquivo), 'utf8');
   for (const [k, v] of Object.entries(subs)) html = html.split(k).join(v);
@@ -364,6 +366,7 @@ async function core(req, res, url) {
     if (req.method === 'GET') {
       switch (url.pathname) {
         case '/api/projetos': return send(res, 200, { projetos: projetos.listar().map(projetoView) });
+        case '/api/politica': return send(res, 200, { padrao: descreverPadrao(), projeto: validarConfigSeguro(P().politica) });
         case '/api/pendencias': return send(res, 200, { sections: parse(), state: readJson(P().STATE, { items: {} }) });
         case '/api/versao': {
           const f = listDocs();
@@ -400,12 +403,24 @@ async function core(req, res, url) {
     }
     if (req.method !== 'POST') return send(res, 405, { erro: 'método' });
     if (!/^application\/json/.test(req.headers['content-type'] || '')) return send(res, 415, { erro: 'use JSON' });
-    const body = await readBody(req, url.pathname === '/api/projetos' ? 4_500_000 : MAX_BODY); // cadastro de projeto aceita imagens (até 1,5 MB cada)
+    const body = await readBody(req, (url.pathname === '/api/projetos' || url.pathname === '/api/projetos/editar') ? 4_500_000 : MAX_BODY); // cadastro de projeto aceita imagens (até 1,5 MB cada)
 
     switch (url.pathname) {
       case '/api/projetos': { // cadastrar projeto (opcionalmente cria a estrutura base padrão Datadubis, sem sobrescrever nada)
-        try { const r = projetos.adicionar({ nome: body.nome, raiz: body.raiz, cor: body.cor, estruturaBase: body.estruturaBase === true, icone: body.icone, logo: body.logo }); return send(res, 200, r); }
+        try { const r = projetos.adicionar({ nome: body.nome, raiz: body.raiz, cor: body.cor, descricao: body.descricao, estruturaBase: body.estruturaBase === true, icone: body.icone, logo: body.logo }); return send(res, 200, r); }
         catch (e) { return send(res, 400, { erro: e.message }); }
+      }
+      case '/api/projetos/editar': {
+        try { return send(res, 200, projetos.editar({ id: String(body.id || ''), nome: body.nome, cor: body.cor, descricao: body.descricao, icone: body.icone, logo: body.logo, removerIcone: body.removerIcone === true, removerLogo: body.removerLogo === true })); }
+        catch (e) { return send(res, 400, { erro: e.message }); }
+      }
+      case '/api/politica': { // salvar regras do projeto (acrescentam às padrão; nunca as removem)
+        try { return send(res, 200, { projeto: projetos.salvarPolitica(P().id, { negar: body.negar, producao: body.producao, permitir: body.permitir }) }); }
+        catch (e) { return send(res, 400, { erro: e.message }); }
+      }
+      case '/api/politica/testar': { // simula um comando contra a política (não executa nada)
+        const v = avaliar(body.tool === 'PowerShell' ? 'PowerShell' : 'Bash', { command: str(body.comando, 4000) }, compilar(P().politica));
+        return send(res, 200, { acao: v.acao, risco: v.risco, motivo: v.motivo, origem: v.origem });
       }
       case '/api/estado': {
         const { id, status, nota } = body;
@@ -470,7 +485,7 @@ async function core(req, res, url) {
         const job = jobs.get(chatId);
         if (!UUID.test(chatId) || !job || job.done || !loadChats().chats[chatId]) return send(res, 409, { erro: 'conversa não está em execução' });
         const tool = str(body.tool_name, 80), input = body.input && typeof body.input === 'object' ? body.input : {};
-        const v = avaliar(tool, input);
+        const v = avaliar(tool, input, compilar(P().politica));
         if (v.acao !== 'perguntar') {
           audit(P(), { chat: chatId, tool, resumo: v.resumo.slice(0, 4000), risco: v.risco, decisao: v.acao === 'permitir' ? 'allow' : 'deny', quem: 'política', motivo: v.motivo });
           return send(res, 200, v.acao === 'permitir' ? { behavior: 'allow' } : { behavior: 'deny', message: `Bloqueado pela política do painel: ${v.motivo}. Peça ao dono para rodar manualmente, se for legítimo.` });

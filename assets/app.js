@@ -110,6 +110,7 @@ const NAV = [
   ['sessoes', 'Sessões', 'pi-history'],
   ['chat', 'Conversar com Claude', 'pi-sparkles'],
   ['arquivos', 'Docs e planejamentos', 'pi-folder-open'],
+  ['politica', 'Política de comandos', 'pi-shield'],
 ];
 function navCount(id) {
   const open = items().filter(isOpen), liveN = S.chats.filter((c) => c.running).length + S.term.filter((x) => !x.oculto && Date.now() - x.mtime < 120000).length;
@@ -396,6 +397,7 @@ function render() {
   if (q.size && r === 'pendencias') { if (q.get('prio') !== null) S.f.prio = q.get('prio'); if (q.get('stat') !== null) S.f.stat = q.get('stat'); S.f.sec = 0; S.page.pend = 1; history.replaceState(null, '', '#/pendencias'); }
   if (r === 'chat' && q.get('s')) { const id = q.get('s'); S.sel = S.chats.find((c) => c.id === id) ? { kind: 'chat', id } : { kind: 'term', id }; S.chatKey = null; history.replaceState(null, '', '#/chat'); }
   if (r === 'chat') { if (!v.querySelector('.chat-layout')) { v.innerHTML = viewChat(); S.chatKey = null; } if (!S.sel && (S.chats[0])) S.sel = { kind: 'chat', id: S.chats[0].id }; updateChat(); if (S.sel?.kind === 'term' && !S.tx[S.sel.id]) openTerm(S.sel.id); return; }
+  if (r === 'politica') { if (!v.querySelector('.pol-page')) { v.innerHTML = '<div class="pol-page" id="pol-root"><div class="note">Carregando…</div></div>'; loadPolitica(); } return; }
   v.innerHTML = r === 'pendencias' ? viewPend() : r === 'sessoes' ? viewSess() : r === 'arquivos' ? viewArq() : viewVisao();
   if (S.focus && r === 'pendencias') document.querySelector(`[data-id="${S.focus}"].item`)?.scrollIntoView({ block: 'center' });
 }
@@ -436,6 +438,19 @@ document.addEventListener('click', async (e) => {
         break;
       }
       case 'revogar-sessao': await api('/api/aprovacao/sessao', { id: d.id }); toast('Aprovação automática desligada.'); await loadChats(); S.chatKey = null; updateChat(); break;
+      case 'pol-add': { const sec = d.sec; S.pol.projeto[sec].push({ padrao: '', motivo: '' }); renderPolitica(); document.querySelector(`.pol-rows[data-sec="${sec}"] .pol-row:last-child input`)?.focus(); break; }
+      case 'pol-del': S.pol.projeto[d.sec].splice(Number(d.i), 1); S.pol.sujo = true; renderPolitica(); break;
+      case 'pol-save': {
+        const p = S.pol.projeto, limpa = (l) => l.filter((r) => r.padrao.trim());
+        try { S.pol.projeto = (await api('/api/politica', { negar: limpa(p.negar), producao: limpa(p.producao), permitir: limpa(p.permitir) })).projeto; S.pol.sujo = false; S.pol.erro = ''; toast('Política salva. Vale já para os próximos comandos.'); }
+        catch (x) { S.pol.erro = x.message; }
+        renderPolitica(); break;
+      }
+      case 'pol-test': {
+        const c = $('#pol-cmd').value.trim(); if (!c) break;
+        try { S.pol.teste = { cmd: c, ...(await api('/api/politica/testar', { comando: c })) }; } catch (x) { S.pol.teste = { cmd: c, erro: x.message }; }
+        renderPolitica(); $('#pol-cmd').focus(); break;
+      }
       case 'stop': api('/api/chat/cancelar', { id: curChat().id }); break;
       case 'quick': { const ta = $('#msg'); if (ta) send(d.p); break; }
       case 'status': break;
@@ -454,6 +469,45 @@ document.addEventListener('click', async (e) => {
     }
   } catch (x) { toast(x.message); }
 });
+document.addEventListener('input', (e) => { // edição das regras de política (os campos guardam o texto em S.pol)
+  const el = e.target.closest('[data-pol]'); if (!el || !S.pol) return;
+  S.pol.projeto[el.dataset.sec][Number(el.dataset.i)][el.dataset.pol] = el.value; S.pol.sujo = true;
+  const b = $('#pol-save'); if (b) b.disabled = false;
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'pol-cmd') { e.preventDefault(); document.querySelector('[data-act="pol-test"]').click(); } });
+const POL_SEC = {
+  negar: ['Bloquear sempre', 'pi-ban', 'O Claude nunca executa e nem chega a perguntar. Ex.: terraform\\s+destroy'],
+  producao: ['Tratar como produção', 'pi-exclamation-triangle', 'Pede aprovação em vermelho, com confirmação extra. Ex.: \\bkubectl\\b'],
+  permitir: ['Liberar sem perguntar', 'pi-check-circle', 'Só comando inteiro e de leitura: comece com ^ e termine com $. Ex.: ^npm run (test|lint)$'],
+};
+async function loadPolitica() {
+  try { const g = await api('/api/politica'); S.pol = { padrao: g.padrao, projeto: g.projeto, sujo: false, erro: '', teste: null }; }
+  catch (x) { S.pol = null; const r = $('#pol-root'); if (r) r.innerHTML = `<div class="note">Não consegui carregar: ${esc(x.message)}</div>`; return; }
+  renderPolitica();
+}
+function renderPolitica() {
+  const root = $('#pol-root'); if (!root || !S.pol) return;
+  const P = S.pol, t = P.teste;
+  const res = !t ? '' : t.erro ? `<div class="pol-res bad">${esc(t.erro)}</div>` : (() => {
+    const [cls, txt] = t.acao === 'negar' ? ['bad', 'Bloqueado'] : t.acao === 'permitir' ? ['ok', 'Liberado sem perguntar'] : t.risco === 'producao' ? ['bad', 'Pede aprovação (PRODUÇÃO, confirmação extra)'] : ['warn', 'Pede aprovação'];
+    return `<div class="pol-res ${cls}"><b>${txt}</b> · ${esc(t.motivo)} <span class="muted">(regra ${esc(t.origem)})</span><code>${esc(t.cmd)}</code></div>`;
+  })();
+  root.innerHTML = `<div class="page-head"><div><h1 class="page-title">Política de comandos</h1>
+    <p class="page-sub">O que o Claude pode fazer neste projeto. As <b>regras padrão</b> valem para todos os projetos e não podem ser removidas; aqui você <b>acrescenta</b> regras só deste projeto. Ordem: bloquear &gt; produção &gt; liberar &gt; perguntar.</p></div>
+    <button class="btn primary" id="pol-save" data-act="pol-save" ${P.sujo ? '' : 'disabled'}><i class="pi pi-save"></i> Salvar política</button></div>
+  ${P.erro ? `<div class="pol-res bad">${esc(P.erro)}</div>` : ''}
+  <div class="card pol-test"><div class="card-head"><span class="ico"><i class="pi pi-play"></i></span><h3>Testar um comando <span class="muted">(só simula, não executa nada)</span></h3></div>
+    <div class="card-body"><div class="pol-testrow"><input id="pol-cmd" class="inp" placeholder="Ex.: npm run test   ou   terraform destroy" value="${esc(t?.cmd || '')}" autocomplete="off"><button class="btn" data-act="pol-test"><i class="pi pi-search"></i> Testar</button></div>${res}</div></div>
+  ${['negar', 'producao', 'permitir'].map((sec) => {
+    const [titulo, icone, dica] = POL_SEC[sec], rows = P.projeto[sec];
+    return `<div class="card pol-card"><div class="card-head"><span class="ico"><i class="pi ${icone}"></i></span><h3>${titulo}</h3><span class="muted small">${rows.length} ${rows.length === 1 ? 'regra própria' : 'regras próprias'}</span></div><div class="card-body">
+      <p class="muted small">${esc(dica)}</p>
+      <div class="pol-rows" data-sec="${sec}">${rows.map((r, i) => `<div class="pol-row"><input class="inp mono" data-pol="padrao" data-sec="${sec}" data-i="${i}" value="${esc(r.padrao)}" placeholder="expressão regular" aria-label="Padrão"><input class="inp" data-pol="motivo" data-sec="${sec}" data-i="${i}" value="${esc(r.motivo)}" placeholder="motivo (aparece para você)" aria-label="Motivo"><button class="icon-btn danger" data-act="pol-del" data-sec="${sec}" data-i="${i}" title="Remover regra" aria-label="Remover regra"><i class="pi pi-trash"></i></button></div>`).join('') || '<div class="muted small">Nenhuma regra própria: valem só as regras padrão.</div>'}</div>
+      <button class="btn sm" data-act="pol-add" data-sec="${sec}"><i class="pi pi-plus"></i> Adicionar regra</button>
+      <details class="pol-def"><summary>Regras padrão (${P.padrao[sec].length}, sempre ativas)</summary><ul>${P.padrao[sec].map((r) => `<li><code>${esc(r.padrao)}</code> <span class="muted">${esc(r.motivo)}</span></li>`).join('')}</ul></details>
+    </div></div>`;
+  }).join('')}`;
+}
 document.addEventListener('change', async (e) => {
   const el = e.target.closest('[data-chg]'); if (!el) return;
   const d = el.dataset;

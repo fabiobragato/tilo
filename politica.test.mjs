@@ -48,3 +48,47 @@ test('comando comum pergunta; outras ferramentas perguntam', () => {
 test('PowerShell passa pela mesma política', () => {
   assert.equal(acao('Remove-Item -Recurse -Force x', 'PowerShell'), 'negar');
 });
+
+// ---------- regras por projeto ----------
+import { validarConfig, compilar } from './politica.mjs';
+const proj = (cfg) => compilar(cfg);
+const aj = (cmd, cfg) => avaliar('Bash', { command: cmd }, proj(cfg));
+
+test('projeto pode liberar comando específico (inteiro, sem metacaracteres)', () => {
+  const cfg = { permitir: [{ padrao: '^npm run (test|lint)$' }] };
+  assert.equal(aj('npm run test', cfg).acao, 'permitir');
+  assert.equal(aj('npm run test', cfg).origem, 'projeto');
+  assert.equal(aj('npm run build', cfg).acao, 'perguntar');
+  assert.notEqual(aj('npm run test; rm x', cfg).acao, 'permitir');
+  assert.notEqual(aj('npm run test && whoami', cfg).acao, 'permitir');
+});
+
+test('projeto pode bloquear e marcar produção', () => {
+  const cfg = { negar: [{ padrao: String.raw`terraform\s+destroy`, motivo: 'destrói infra' }], producao: [{ padrao: String.raw`\bkubectl\b` }] };
+  assert.deepEqual([aj('terraform destroy -auto-approve', cfg).acao, aj('terraform destroy', cfg).motivo], ['negar', 'destrói infra']);
+  assert.deepEqual([aj('kubectl get pods', cfg).acao, aj('kubectl get pods', cfg).risco], ['perguntar', 'producao']);
+});
+
+test('regra do projeto nunca enfraquece o padrão', () => {
+  const cfg = { permitir: [{ padrao: '^rm -rf x$' }, { padrao: String.raw`^cat \.env$` }, { padrao: '^ssh -V$' }] };
+  assert.equal(aj('rm -rf x', cfg).acao, 'negar');
+  assert.equal(aj('cat .env', cfg).acao, 'negar');
+  assert.equal(aj('ssh -V', cfg).risco, 'producao'); // produção vence permitir
+  assert.notEqual(aj('ssh -V', cfg).acao, 'permitir');
+});
+
+test('validação recusa regra perigosa ou inválida', () => {
+  assert.throws(() => validarConfig({ permitir: [{ padrao: 'npm test' }] }), /\^ e terminar com \$/);
+  assert.throws(() => validarConfig({ permitir: [{ padrao: '^npm .*$' }] }), /curinga amplo/);
+  assert.throws(() => validarConfig({ negar: [{ padrao: '(' }] }), /inválida/);
+  assert.throws(() => validarConfig({ negar: [{ padrao: '(a+)+$' }] }), /aninhada/);
+  assert.throws(() => validarConfig({ negar: [{ padrao: '' }] }), /vazio/);
+  assert.throws(() => validarConfig({ negar: 'x' }), /lista/);
+  assert.throws(() => validarConfig({ negar: Array.from({ length: 41 }, () => ({ padrao: 'x' })) }), /no máximo/);
+  assert.deepEqual(validarConfig(undefined), { negar: [], producao: [], permitir: [] });
+});
+
+test('compilar ignora entradas inválidas sem derrubar', () => {
+  assert.deepEqual(compilar({ negar: [{ padrao: '(' }] }), { negar: [], producao: [], permitir: [] });
+  assert.equal(aj('ls', { negar: 5 }).acao, 'permitir');
+});
