@@ -6,3 +6,6 @@ logos/
 *.log
 assets/central.ico
 node_modules/
+
+# Catálogo de modelos (local: contém documentação dos seus projetos)
+catalogo/

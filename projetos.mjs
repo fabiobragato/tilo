@@ -58,7 +58,7 @@ Antes de implementar qualquer coisa, leia a documentação relevante em \`docs/\
 `;
 const TEMPLATE_DOCS = (nome) => `# Documentação — ${nome}\n\nFonte de verdade do projeto. Conceitos ainda em aberto ficam em \`planning/\` até serem decididos.\n`;
 
-// Cria a estrutura base do padrão Datadubis sem sobrescrever nada que já exista.
+// Cria a estrutura base do padrão de documentação da Central sem sobrescrever nada que já exista.
 function estrutura(raiz, nome) {
   const criado = [];
   const escreve = (rel, txt) => {

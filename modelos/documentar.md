@@ -1,4 +1,4 @@
-Você vai montar a documentação oficial do projeto "{{NOME}}" no MESMO PADRÃO do projeto Datadubis. Escreva tudo em português do Brasil. Você só tem ferramentas de leitura (Read, Grep, Glob) e de escrita de arquivos (Write, Edit). Não há terminal.
+Você vai montar a documentação oficial do projeto "{{NOME}}" no padrão de documentação da Central de Projetos, descrito abaixo. Escreva tudo em português do Brasil. Você só tem ferramentas de leitura (Read, Grep, Glob) e de escrita de arquivos (Write, Edit). Não há terminal.
 
 [[criar]]
 ## Modo: CRIAR a documentação
@@ -23,10 +23,17 @@ O projeto já tem documentação. Seu trabalho é achar e corrigir TODA divergê
 6. Não altere código. Só escreva em `docs/`, `planning/`, `pendencias/` e `CLAUDE.md` (em qualquer outro lugar a escrita é bloqueada). Arquivo novo nessas pastas é criado direto; alterar um arquivo que já existe pede a aprovação do dono, então prefira criar arquivos novos e edite só o necessário.
 7. Sem duplicação: quando outro documento já cobre o assunto, aponte para ele com link relativo.
 
+[[modelos]]
+## Modelos de referência (de OUTROS projetos com a mesma stack)
+O dono escolheu modelos de documentação já prontos de outros projetos. Eles estão em pastas SOMENTE DE LEITURA, que você pode listar e ler (Glob/Read):
+{{LISTA_MODELOS}}
+Como usar: aproveite a ESTRUTURA, os temas, o nível de detalhe e os padrões técnicos da stack. O conteúdo final de cada documento, porém, deve descrever ESTE projeto, confirmado no código dele. Nunca copie nomes, regras de negócio, números nem fatos de outro projeto. Se o modelo trata de algo que este projeto não tem, ignore. Quando este projeto seguir de fato o mesmo padrão do modelo (verifique no código), você pode reaproveitar o texto, ajustando nomes, caminhos e valores.
+[[/modelos]]
+
 ## Etapa 1: reconhecimento (antes de escrever)
 Explore o projeto: README, manifestos (package.json, *.csproj, pyproject.toml, requirements.txt, go.mod, pom.xml, Cargo.toml...), Dockerfile e docker-compose, CI/CD, scripts de deploy, pastas de primeiro nível, pontos de entrada, rotas/endpoints, modelos de dados e migrações, autenticação, configuração, testes. Descubra QUAIS camadas existem de fato. Diga ao dono, em poucas linhas, o que encontrou e quais áreas vai documentar.
 
-## Etapa 2: estrutura alvo (espelha o Datadubis; crie apenas as áreas que existem de verdade)
+## Etapa 2: estrutura alvo (crie apenas as áreas que existem de verdade)
 ```
 docs/README.md              índice geral
 docs/backend/               se houver API/servidor

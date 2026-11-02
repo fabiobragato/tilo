@@ -10,6 +10,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { avaliar, avaliarArquivo, compilar, descrever, descreverFabrica, FERRAMENTAS_ARQUIVO, listarPacotes, validarConfig } from './politica.mjs';
 import * as projetos from './projetos.mjs';
+import * as catalogo from './catalogo.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const als = new AsyncLocalStorage(); // projeto da requisição em curso
@@ -236,6 +237,8 @@ function startJob(chat, text) {
   const args = ['-p', '--output-format', 'text', '--allowedTools', tools, '--setting-sources', 'project', '--settings', SETTINGS_FILE,
     '--mcp-config', mcpCfg, '--strict-mcp-config', '--permission-prompt-tool', 'mcp__central__approve', '--append-system-prompt', JSON.stringify(SYSTEM)];
   if (bloqueadas.length) args.push('--disallowedTools', bloqueadas.join(','));
+  const dirsModelo = (chat.modelos || []).map((id) => catalogo.pastaDoModelo(id)).filter(Boolean); // modelos do catálogo: leitura liberada, escrita bloqueada (settings)
+  if (dirsModelo.length) args.push('--add-dir', ...dirsModelo.map((d) => `"${d}"`));
   if (chat.plan && !doc) args.push('--permission-mode', 'plan');
   args.push('--model', MODELS.includes(chat.model) ? chat.model : DEFAULT_MODEL); // validado contra MODELS
   args.push(first ? '--session-id' : '--resume', chat.id);
@@ -382,6 +385,9 @@ async function core(req, res, url) {
             areas: AREAS.map(([id, nome]) => ({ id, nome, arquivos: contar(path.join(R, 'docs', id)) })),
             geral: { docsReadme: tem('docs', 'README.md'), claudeMd: tem('CLAUDE.md'), planning: tem('planning', 'README.md'), pendencias: tem('pendencias', 'README.md') },
             total: contar(path.join(R, 'docs')), pastas, recentes: listDocs().sort((a, b) => b.mtime - a.mtime).slice(0, 12), job,
+            stack: catalogo.detectarStack(R).map((id) => ({ id, nome: catalogo.rotuloStack(id) })),
+            catalogo: catalogo.listar().map((m) => ({ ...m, stack: (m.stack || []).map((id) => ({ id, nome: catalogo.rotuloStack(id) })), compat: (m.stack || []).filter((s) => catalogo.detectarStack(R).includes(s)).length })).sort((a, b) => b.compat - a.compat),
+            areasReaproveitaveis: catalogo.AREAS_REAPROVEITAVEIS,
           });
         }
         case '/api/permissoes': {
@@ -432,7 +438,7 @@ async function core(req, res, url) {
     const body = await readBody(req, (url.pathname === '/api/projetos' || url.pathname === '/api/projetos/editar') ? 4_500_000 : MAX_BODY); // cadastro de projeto aceita imagens (até 1,5 MB cada)
 
     switch (url.pathname) {
-      case '/api/projetos': { // cadastrar projeto (opcionalmente cria a estrutura base padrão Datadubis, sem sobrescrever nada)
+      case '/api/projetos': { // cadastrar projeto (opcionalmente cria a estrutura base do padrão de documentação, sem sobrescrever nada)
         try { const r = projetos.adicionar({ nome: body.nome, raiz: body.raiz, cor: body.cor, descricao: body.descricao, estruturaBase: body.estruturaBase === true, icone: body.icone, logo: body.logo }); return send(res, 200, r); }
         catch (e) { return send(res, 400, { erro: e.message }); }
       }
@@ -440,15 +446,28 @@ async function core(req, res, url) {
         try { return send(res, 200, projetos.editar({ id: String(body.id || ''), nome: body.nome, cor: body.cor, descricao: body.descricao, icone: body.icone, logo: body.logo, removerIcone: body.removerIcone === true, removerLogo: body.removerLogo === true })); }
         catch (e) { return send(res, 400, { erro: e.message }); }
       }
-      case '/api/documentacao/iniciar': { // o Claude lê o projeto e monta/atualiza docs/ no padrão Datadubis (modelos/documentar.md)
+      case '/api/catalogo/salvar': { // copia a documentação técnica deste projeto para o catálogo de modelos
+        try {
+          const stack = Array.isArray(body.stack) ? body.stack : catalogo.detectarStack(P().ROOT);
+          return send(res, 200, catalogo.salvar({ raizProjeto: P().ROOT, nomeProjeto: P().nome, nome: body.nome, descricao: body.descricao, areas: body.areas, stack }));
+        } catch (e) { return send(res, 400, { erro: e.message }); }
+      }
+      case '/api/catalogo/excluir': {
+        try { catalogo.excluir(String(body.id || '')); audit(P(), { chat: '-', tool: 'catálogo', resumo: String(body.id), risco: 'normal', decisao: 'excluído', quem: 'dono', motivo: 'modelo removido do catálogo' }); return send(res, 200, { ok: true }); }
+        catch (e) { return send(res, 400, { erro: e.message }); }
+      }
+      case '/api/documentacao/iniciar': { // o Claude lê o projeto e monta/atualiza docs/ no padrão da Central (modelos/documentar.md)
         const modo = body.modo === 'atualizar' ? 'atualizar' : 'criar', modelo = MODELS.includes(body.modelo) ? body.modelo : DEFAULT_MODEL;
+        const modelos = [...new Set((Array.isArray(body.modelos) ? body.modelos : []).map(String))].filter((id) => catalogo.pastaDoModelo(id)).slice(0, 5);
         if (Object.values(loadChats().chats).some((c) => c.doc && jobs.get(c.id) && !jobs.get(c.id).done)) return send(res, 409, { erro: 'já existe uma documentação em andamento neste projeto' });
         let tpl; try { tpl = fs.readFileSync(path.join(HERE, 'modelos', 'documentar.md'), 'utf8'); } catch { return send(res, 500, { erro: 'modelo de documentação não encontrado' }); }
+        const lista = modelos.map((id) => { const m = catalogo.listar().find((x) => x.id === id); return `- “${m.nome}” (stack: ${(m.stack || []).map(catalogo.rotuloStack).join(', ') || 'não informada'}; áreas: ${m.areas.map((a) => a.id).join(', ')}): ${catalogo.pastaDoModelo(id)}`; }).join('\n');
+        tpl = modelos.length ? tpl.replace('[[modelos]]', '').replace('[[/modelos]]', '').split('{{LISTA_MODELOS}}').join(lista) : tpl.replace(/\[\[modelos\]\][\s\S]*?\[\[\/modelos\]\]\n?/, '');
         for (const m of ['criar', 'atualizar']) tpl = m === modo ? tpl.replace(`[[${m}]]`, '').replace(`[[/${m}]]`, '') : tpl.replace(new RegExp(`\\[\\[${m}\\]\\][\\s\\S]*?\\[\\[/${m}\\]\\]`), '');
         const prompt = tpl.split('{{NOME}}').join(P().nome);
         const titulo = modo === 'criar' ? 'Montar a documentação' : 'Atualizar a documentação';
-        const c = { id: crypto.randomUUID(), title: titulo, itemId: '', contexto: '', model: modelo, plan: false, edit: false, exec: false, doc: true, started: false, created: Date.now(), updated: Date.now(),
-          messages: [{ role: 'user', text: `${titulo} do projeto ${P().nome} no padrão Datadubis.`, ts: Date.now(), model: modelo, plan: false }] };
+        const c = { id: crypto.randomUUID(), title: titulo, itemId: '', contexto: '', model: modelo, plan: false, edit: false, exec: false, doc: true, modelos, started: false, created: Date.now(), updated: Date.now(),
+          messages: [{ role: 'user', text: `${titulo} do projeto ${P().nome}${modelos.length ? ` (partindo de ${modelos.length} modelo${modelos.length === 1 ? '' : 's'} do catálogo)` : ''}.`, ts: Date.now(), model: modelo, plan: false }] };
         saveChat(c);
         startJob(c, prompt);
         return send(res, 200, chatView(c));

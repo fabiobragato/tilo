@@ -445,12 +445,20 @@ document.addEventListener('click', async (e) => {
       }
       case 'revogar-sessao': await api('/api/aprovacao/sessao', { id: d.id }); toast('Aprovação automática desligada.'); await loadChats(); S.chatKey = null; updateChat(); break;
       case 'doc-iniciar': {
-        const modelo = $('#doc-modelo')?.value || 'sonnet';
+        const modelo = $('#doc-modelo')?.value || 'sonnet', modelos = [...document.querySelectorAll('.mod-check:checked')].map((x) => x.value);
         el.disabled = true;
-        try { const c = await api('/api/documentacao/iniciar', { modo: d.modo, modelo }); toast('Documentação iniciada. Acompanhe por aqui.'); location.hash = `#/chat?s=${c.id}`; }
+        try { const c = await api('/api/documentacao/iniciar', { modo: d.modo, modelo, modelos }); toast('Documentação iniciada. Acompanhe por aqui.'); location.hash = `#/chat?s=${c.id}`; }
         catch (x) { toast(x.message); el.disabled = false; }
         break;
       }
+      case 'cat-salvar': {
+        const areas = [...document.querySelectorAll('.cat-area:checked')].map((x) => x.value), stack = [...document.querySelectorAll('.cat-stack:checked')].map((x) => x.value);
+        el.disabled = true;
+        try { await api('/api/catalogo/salvar', { nome: $('#cat-nome').value, descricao: $('#cat-desc').value, areas, stack }); S.docLimpar = true; toast('Modelo salvo no catálogo. Já pode ser usado em outros projetos.'); await loadDocumentacao(true); }
+        catch (x) { toast(x.message); }
+        el.disabled = false; break;
+      }
+      case 'cat-excluir': { if (confirm('Excluir este modelo do catálogo? Os projetos que já foram documentados com ele não mudam.')) { try { await api('/api/catalogo/excluir', { id: d.id }); toast('Modelo excluído.'); await loadDocumentacao(true); } catch (x) { toast(x.message); } } break; }
       case 'perm-pacote': { try { await api('/api/permissoes/pacote', { id: d.id, ligado: el.checked }); toast(el.checked ? 'Pacote ligado.' : 'Pacote desligado.'); } catch (x) { toast(x.message); } await loadPermissoes(); break; }
       case 'perm-esquecer': { const c = S.perm.lembrados[Number(d.i)]?.comando; if (c && confirm('Remover esta permissão? Da próxima vez o Claude vai perguntar de novo.')) { await api('/api/permissoes/esquecer', { comando: c }); toast('Permissão removida.'); await loadPermissoes(); } break; }
       case 'perm-add': {
@@ -488,18 +496,30 @@ async function loadDocumentacao(silencioso) {
   try { const g = await api('/api/documentacao'); S.doc = { ...g, modelo: S.doc?.modelo || 'sonnet' }; }
   catch (x) { if (!silencioso) { const r = $('#doc-root'); if (r) r.innerHTML = `<div class="note">Não consegui carregar: ${esc(x.message)}</div>`; } return; }
   renderDocumentacao();
-  if (!S.docTimer) S.docTimer = setInterval(() => { if (route() !== 'documentacao') { clearInterval(S.docTimer); S.docTimer = null; return; } loadDocumentacao(true); }, 4000);
+  // atualiza sozinho só enquanto a documentação está sendo gerada (não atrapalha quem está preenchendo o formulário)
+  if (S.docTimer && !S.doc.job?.rodando) { clearInterval(S.docTimer); S.docTimer = null; }
+  if (!S.docTimer && S.doc.job?.rodando) S.docTimer = setInterval(() => { if (route() !== 'documentacao') { clearInterval(S.docTimer); S.docTimer = null; return; } loadDocumentacao(true); }, 4000);
+}
+function guardarFormDoc() { // preserva o que a pessoa já marcou/digitou ao redesenhar a tela
+  if (!$('#doc-root')) return;
+  if (S.docLimpar) { S.docLimpar = false; S.docForm = null; return; } // depois de salvar um modelo, o formulário volta ao início
+  S.docForm = { modelo: $('#doc-modelo')?.value, nome: $('#cat-nome')?.value, desc: $('#cat-desc')?.value,
+    modelos: [...document.querySelectorAll('.mod-check')].map((x) => [x.value, x.checked]), areas: [...document.querySelectorAll('.cat-area')].map((x) => [x.value, x.checked]), stack: [...document.querySelectorAll('.cat-stack')].map((x) => [x.value, x.checked]) };
 }
 function renderDocumentacao() {
   const root = $('#doc-root'); if (!root || !S.doc) return;
-  const D = S.doc, rodando = D.job?.rodando;
-  const sel = $('#doc-modelo'); if (sel) D.modelo = sel.value;
+  guardarFormDoc();
+  const D = S.doc, F = S.docForm || {}, rodando = D.job?.rodando;
+  const marcado = (lista, v, padrao) => { const x = (lista || []).find((y) => y[0] === v); return x ? x[1] : padrao; };
   const ok = (b) => `<i class="pi ${b ? 'pi-check-circle doc-ok' : 'pi-circle doc-no'}"></i>`;
   const vazio = D.total === 0;
+  const chips = (l) => (l || []).map((s) => `<span class="lv lv-ok">${esc(s.nome)}</span>`).join(' ');
+  const comAreas = D.areas.filter((a) => a.arquivos && D.areasReaproveitaveis.includes(a.id));
   root.innerHTML = `<div class="page-head"><div><h1 class="page-title">Documentação do projeto</h1>
-    <p class="page-sub">O Claude lê o código do projeto e monta a documentação oficial (<b>docs/</b>), no mesmo padrão do Datadubis: backend, frontend, regras de negócio, dados, infraestrutura, deploy e segurança, só com as áreas que o projeto realmente tem.</p></div></div>
+    <p class="page-sub">O Claude lê o código do projeto e monta a documentação oficial (<b>docs/</b>) num padrão organizado por área: backend, frontend, regras de negócio, dados, infraestrutura, deploy e segurança, só com as áreas que o projeto realmente tem. Se você já documentou um projeto com a mesma stack, pode partir dos modelos do catálogo.</p></div></div>
   ${rodando ? `<div class="card doc-run"><div class="card-head"><span class="ico"><i class="pi pi-spin pi-spinner"></i></span><h3>Documentação em andamento</h3><a class="link" href="#/chat?s=${D.job.chatId}">Ver a conversa</a></div><div class="card-body"><p class="muted small">Pode levar vários minutos. Os arquivos novos aparecem abaixo conforme são criados. Você pode sair desta tela: ela continua.</p></div></div>` : D.job ? `<div class="card"><div class="card-head"><span class="ico"><i class="pi pi-history"></i></span><h3>Última execução</h3><a class="link" href="#/chat?s=${D.job.chatId}">Ver a conversa e o resumo</a></div></div>` : ''}
   <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-th-large"></i></span><h3>Como está hoje</h3><span class="muted small">${D.total} documento${D.total === 1 ? '' : 's'} em docs/</span></div><div class="card-body">
+    <p class="doc-stack"><b>Stack identificada:</b> ${D.stack.length ? chips(D.stack) : '<span class="muted">nenhuma ainda (a pasta não tem código reconhecível)</span>'}</p>
     <div class="doc-grid">${D.areas.map((a) => `<div class="doc-area ${a.arquivos ? 'on' : ''}">${ok(a.arquivos)}<b>${esc(a.nome)}</b><span class="muted small">${a.arquivos ? `${a.arquivos} documento${a.arquivos === 1 ? '' : 's'}` : 'ainda não existe'}</span></div>`).join('')}</div>
     <ul class="doc-geral"><li>${ok(D.geral.docsReadme)} <b>docs/README.md</b> índice geral</li><li>${ok(D.geral.claudeMd)} <b>CLAUDE.md</b> instruções para o Claude trabalhar no projeto</li><li>${ok(D.geral.planning)} <b>planning/</b> planos ainda não fechados</li><li>${ok(D.geral.pendencias)} <b>pendencias/</b> o seu painel (é daqui que a Central lê as pendências)</li></ul>
     ${D.pastas.length ? `<p class="muted small">Pastas encontradas no projeto: ${D.pastas.map((p) => `<code>${esc(p)}</code>`).join(' ')}</p>` : '<p class="muted small">A pasta do projeto ainda está vazia. Quando houver código, volte aqui.</p>'}</div></div>
@@ -508,10 +528,20 @@ function renderDocumentacao() {
       <li><b>O que ele não faz:</b> não mexe no código, não usa terminal e não lê senhas (.env, chaves). Só escreve em <code>docs/</code>, <code>planning/</code>, <code>pendencias/</code> e <code>CLAUDE.md</code>.</li>
       <li><b>Segurança:</b> arquivos <b>novos</b> são criados direto. Se precisar alterar um arquivo que já existe, ele pede a sua aprovação antes.</li>
       <li><b>Tempo e uso:</b> costuma levar de 5 a 30 minutos, conforme o tamanho do projeto, e usa a sua assinatura do Claude.</li></ul>
-    <div class="doc-acoes"><label>Modelo <select id="doc-modelo" class="sel sm"><option value="sonnet" ${D.modelo === 'sonnet' ? 'selected' : ''}>Sonnet (padrão, mais rápido)</option><option value="opus" ${D.modelo === 'opus' ? 'selected' : ''}>Opus (mais caprichado, usa mais)</option><option value="haiku" ${D.modelo === 'haiku' ? 'selected' : ''}>Haiku (rápido e simples)</option></select></label>
+    ${D.catalogo.length ? `<div class="doc-modelos"><b>Partir de modelos do catálogo</b> <span class="muted small">(opcional: de outros projetos; o Claude só aproveita a estrutura e os padrões da stack e confere tudo neste projeto)</span>
+      ${D.catalogo.map((m) => `<label class="doc-mod"><input type="checkbox" class="mod-check" value="${esc(m.id)}" ${marcado(F.modelos, m.id, vazio && m.compat > 0) ? 'checked' : ''}><span><b>${esc(m.nome)}</b> ${m.compat ? '<span class="lv lv-ok">mesma stack</span>' : ''}<span class="muted small">${chips(m.stack)} · ${m.areas.map((a) => a.id).join(', ')} · de ${esc(m.origem || '—')}</span></span></label>`).join('')}</div>` : ''}
+    <div class="doc-acoes"><label>Modelo de IA <select id="doc-modelo" class="sel sm"><option value="sonnet" ${(F.modelo || D.modelo) === 'sonnet' ? 'selected' : ''}>Sonnet (padrão, mais rápido)</option><option value="opus" ${F.modelo === 'opus' ? 'selected' : ''}>Opus (mais caprichado, usa mais)</option><option value="haiku" ${F.modelo === 'haiku' ? 'selected' : ''}>Haiku (rápido e simples)</option></select></label>
       <span class="sp"></span>
       <button class="btn ${vazio ? 'primary' : ''}" data-act="doc-iniciar" data-modo="criar" ${rodando ? 'disabled' : ''}><i class="pi pi-plus"></i> ${vazio ? 'Montar a documentação' : 'Criar o que falta'}</button>
       ${vazio ? '' : `<button class="btn primary" data-act="doc-iniciar" data-modo="atualizar" ${rodando ? 'disabled' : ''}><i class="pi pi-refresh"></i> Conferir com o código e atualizar</button>`}</div></div></div>
+  <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-bookmark"></i></span><h3>Catálogo de modelos</h3><span class="muted small">${D.catalogo.length}</span></div><div class="card-body">
+    <p class="muted small">Modelos são cópias da documentação <b>técnica</b> de um projeto (backend, frontend, infra, segurança...) para reaproveitar em outros projetos da mesma stack. Regras de negócio, planejamento e pendências nunca entram, porque são específicas de cada produto. Ficam só no seu computador.</p>
+    ${D.catalogo.length ? `<ul class="perm-list">${D.catalogo.map((m) => `<li><span class="top"><b>${esc(m.nome)}</b>${chips(m.stack)}</span>${m.descricao ? `<span class="muted small">${esc(m.descricao)}</span>` : ''}<span class="muted small">${m.arquivos} documentos · áreas: ${m.areas.map((a) => `${a.id} (${a.arquivos})`).join(', ')} · de ${esc(m.origem || '—')} · ${quando(m.criadoEm)}</span><button class="btn sm" data-act="cat-excluir" data-id="${esc(m.id)}"><i class="pi pi-trash"></i> Excluir modelo</button></li>`).join('')}</ul>` : '<div class="muted small">Nenhum modelo ainda. Quando este projeto tiver documentação, salve-a aqui embaixo para reaproveitar em outros.</div>'}
+    <div class="perm-sub"><h4>Salvar a documentação deste projeto como modelo</h4>
+      ${comAreas.length ? `<div class="cat-form"><input class="inp" id="cat-nome" maxlength="60" placeholder="Nome do modelo (ex.: API .NET + Angular)" value="${esc(F.nome ?? '')}" aria-label="Nome do modelo"><input class="inp" id="cat-desc" maxlength="200" placeholder="Descrição (opcional)" value="${esc(F.desc ?? '')}" aria-label="Descrição">
+        <div class="cat-opts"><span class="muted small">Áreas:</span>${comAreas.map((a) => `<label class="cat-chk"><input type="checkbox" class="cat-area" value="${a.id}" ${marcado(F.areas, a.id, true) ? 'checked' : ''}> ${esc(a.nome)} (${a.arquivos})</label>`).join('')}</div>
+        <div class="cat-opts"><span class="muted small">Stack do modelo:</span>${D.stack.length ? D.stack.map((s) => `<label class="cat-chk"><input type="checkbox" class="cat-stack" value="${s.id}" ${marcado(F.stack, s.id, true) ? 'checked' : ''}> ${esc(s.nome)}</label>`).join('') : '<span class="muted small">não identificada</span>'}</div>
+        <button class="btn primary" data-act="cat-salvar"><i class="pi pi-save"></i> Salvar no catálogo</button></div>` : '<div class="muted small">Ainda não há documentação técnica neste projeto para salvar. Monte-a acima primeiro.</div>'}</div></div></div>
   ${D.recentes.length ? `<div class="card"><div class="card-head"><span class="ico"><i class="pi pi-file"></i></span><h3>Arquivos mexidos recentemente</h3></div><div class="card-body"><ul class="doc-rec">${D.recentes.map((f) => `<li><a class="link" data-act="file" data-p="${esc(f.path)}">${esc(f.path)}</a><span class="muted small">${ago(f.mtime)}</span></li>`).join('')}</ul></div></div>` : ''}`;
 }
 const NIVEL = { leitura: ['Só consulta', 'lv-ok'], altera: ['Altera arquivos', 'lv-warn'], rede: ['Usa a internet', 'lv-warn'], servidor: ['Mexe em servidor/produção', 'lv-bad'], desconhecido: ['Não reconhecido', 'lv-warn'] };

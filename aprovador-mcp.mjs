@@ -1,5 +1,5 @@
 // Servidor MCP (stdio, sem dependências) usado como --permission-prompt-tool do `claude -p`.
-// Cada pedido de permissão do Claude vira uma chamada à ferramenta `approve`, que consulta o servidor do Datadubis Central
+// Cada pedido de permissão do Claude vira uma chamada à ferramenta `approve`, que consulta o servidor da Central de Projetos
 // (política + clique do dono na UI) e devolve {behavior: allow|deny}. Qualquer falha = negar.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,7 +13,7 @@ const PROJ = process.env.CENTRAL_PROJECT || "";
 
 const TOOL = {
   name: 'approve',
-  description: 'Pede ao dono, na UI do Datadubis Central, permissão para usar uma ferramenta.',
+  description: 'Pede ao dono, na UI da Central de Projetos, permissão para usar uma ferramenta.',
   inputSchema: {
     type: 'object',
     properties: { tool_name: { type: 'string' }, input: { type: 'object' }, tool_use_id: { type: 'string' } },

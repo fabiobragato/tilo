@@ -15,12 +15,19 @@ Ferramenta local de trabalho do dono: escolha um projeto (tela de seleção esti
 
 **Problemas comuns:** `No suitable shell found` = o Claude Code não achou o Git Bash; defina `CLAUDE_CODE_GIT_BASH_PATH` (o `verificar.ps1` mostra o caminho) em `~\.claude\settings.json`, chave `env`, e reinicie. O `bash` do WSL em `System32` não serve.
 
-## Documentação no padrão Datadubis
-Menu **Documentação** (em cada projeto). O Claude lê o código e monta/atualiza `docs/` na mesma estrutura do Datadubis: `docs/README.md` (índice, escopo e ordem de prioridade), uma pasta por área que o projeto realmente tem (`backend/`, `frontend/`, `business/`, `data-platform/`, `infra/`, `deploy/`, `security/`, cada uma com `README.md` e documentos temáticos), além de `planning/README.md`, `pendencias/README.md` e `CLAUDE.md`. As instruções que ele segue estão em `modelos/documentar.md` (edite para ajustar o padrão).
-- **Criar o que falta** (projeto sem docs) ou **Conferir com o código e atualizar** (projeto com docs): o segundo compara cada documento com o código e corrige só o que está errado ou ausente.
+## Documentação e catálogo de modelos
+Menu **Documentação** (em cada projeto). O Claude lê o código e monta/atualiza `docs/` num padrão organizado por área: `docs/README.md` (índice, escopo e ordem de prioridade), uma pasta por área que o projeto realmente tem (`backend/`, `frontend/`, `business/`, `data-platform/`, `infra/`, `deploy/`, `security/`, cada uma com `README.md` e documentos temáticos), além de `planning/README.md`, `pendencias/README.md` e `CLAUDE.md`. As instruções que ele segue estão em `modelos/documentar.md` (edite para ajustar o padrão).
+- **Criar o que falta** (projeto sem docs) ou **Conferir com o código e atualizar** (projeto com docs): o segundo monta um inventário de fatos do código (rotas, listas de valores, campos, variáveis, versões) e compara valor por valor com cada documento, corrigindo só o que diverge.
 - Regras do padrão: `docs/` só descreve o que está implantado, no presente e confirmado no código; planos vão para `planning/`; o que só o dono decide ou confere (inclusive problemas encontrados) vai para `pendencias/README.md`; nada de segredos.
 - **Segurança:** o Claude não tem terminal nessa conversa. Só pode escrever em `docs/`, `planning/`, `pendencias/` e `CLAUDE.md` (código, `.env`, chaves e qualquer lugar fora do projeto são bloqueados). Arquivo **novo** é criado direto; **alterar um arquivo existente** abre o modal de aprovação. Tudo fica no log de auditoria do projeto.
-- A tela mostra a cobertura por área, os arquivos criados em tempo quase real e o link para a conversa com o resumo final. Modelo padrão: Sonnet (Opus é mais caprichado e usa mais a assinatura). Costuma levar de 5 a 30 minutos.
+- A tela mostra a cobertura por área, os arquivos criados em tempo quase real e o link para a conversa com o resumo final. Modelo de IA padrão: Sonnet (Opus é mais caprichado e usa mais a assinatura; prefira um dos dois a Haiku em projetos reais). Costuma levar de 5 a 30 minutos.
+
+### Catálogo de modelos reaproveitáveis por stack
+Cada projeto documentado pode virar um **modelo** para outros projetos da mesma stack (ex.: API .NET + Angular, Python + Docker).
+- **Stack identificada automaticamente** pelos arquivos do projeto (.NET, Angular, React, Vue, Node.js, Python, Java, Go, Rust, PHP, Ruby, Docker, PostgreSQL) e mostrada na tela.
+- **Salvar no catálogo:** na tela Documentação, escolha as áreas técnicas (backend, frontend, infra, deploy, segurança, dados), confira a stack e dê um nome. A Central copia esses documentos para `catalogo/<modelo>/` (relatórios de auditoria ficam de fora). **Regras de negócio, planejamento e pendências nunca entram**: são específicos de cada produto.
+- **Usar um modelo:** ao montar a documentação de outro projeto, marque os modelos desejados (os da mesma stack aparecem como *mesma stack* e vêm marcados em projetos sem docs). O Claude lê o modelo em modo somente leitura e aproveita a **estrutura, os temas e os padrões técnicos**, mas cada documento final descreve **o projeto novo**, confirmado no código: ele não copia nomes, regras nem fatos do projeto de origem.
+- O catálogo é **local** (`catalogo/`, fora do git), porque contém a documentação dos seus projetos. Para compartilhar, copie a pasta de um modelo para o `catalogo/` de outra instalação.
 
 ## Usar
 - **Atalho** *Central de Projetos* na área de trabalho (`scripts\instalar-atalho.ps1` cria). Sobe o servidor oculto (se preciso) e abre o navegador já autenticado. Manual: `iniciar.cmd` → http://localhost:4777/.
@@ -31,7 +38,7 @@ Menu **Documentação** (em cada projeto). O Claude lê o código e monta/atuali
 ## Como funciona
 - `projetos.json` (local, gitignored; modelo em `projetos.example.json`): lista de projetos com `id`, `nome`, `raiz`, `cor`, `descricao`, `icone`/`logo` (caminhos relativos a esta pasta, opcionais: sem ícone vira um cartão com as iniciais), `pendencias` e `pastasLegiveis`.
 - Cada projeto tem dados próprios em `dados/<id>/` (`estado.json`, `chats.json`, `sessoes-meta.json`, `auditoria.jsonl`), **fora** da pasta do projeto. O `claude` roda com `cwd` na raiz do projeto, então usa o `CLAUDE.md` e `docs/` dele.
-- Padrão de projeto esperado (o do Datadubis): `docs/` (fonte de verdade), `planning/` (não fechado), `pendencias/README.md` (tabelas com 🔴🟡🟢).
+- Padrão de projeto esperado: `docs/` (fonte de verdade), `planning/` (planos ainda não fechados), `pendencias/README.md` (painel do dono, tabelas com 🔴🟡🟢) e `CLAUDE.md` (instruções para o Claude). **Projeto novo ou existente:** use *Criar estrutura base* para gerar esses arquivos vazios e/ou a tela Documentação para o Claude escrevê-los a partir do código.
 - Rotas: `/` seleção · `/p/<id>` painel · `/api/p/<id>/...` API do projeto · `/api/projetos` lista/cadastra · `/logo/<id>` ícone.
 
 ## Segurança
