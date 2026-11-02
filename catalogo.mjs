@@ -2,6 +2,8 @@
 // Estrutura: catalogo/<coleção>/<área>/<arquivo>.md, onde a coleção é o projeto de origem. Só documentação TÉCNICA entra
 // (backend, frontend, infra, deploy, segurança, dados): regras de negócio, planejamento e pendências são específicos de cada produto.
 import fs from 'node:fs';
+import os from 'node:os';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -27,7 +29,7 @@ export function resolverId(id, dir = DIR_CATALOGO) {
 
 const titulo = (txt, fallback) => { const m = /^#\s+(.+)$/m.exec(txt); return (m ? m[1] : fallback).replace(/[`*_]/g, '').trim().slice(0, 120); };
 function resumo(txt) {
-  for (const l of txt.split(/\r?\n/)) { const t = l.trim(); if (!t || /^(#|---|>|\||```|!\[)/.test(t)) continue; return t.replace(/[`*_]|\[([^\]]*)\]\([^)]*\)/g, '$1').slice(0, 170); }
+  for (const l of txt.split(/\r?\n/)) { const t = l.trim(); if (!t || /^(#|---|>|\||```|!\[)/.test(t)) continue; const limpo = t.replace(/[`*_]|\[([^\]]*)\]\([^)]*\)/g, '$1'); return limpo.length <= 230 ? limpo : limpo.slice(0, 230).replace(/\s+\S*$/, '') + '…'; }
   return '';
 }
 const lerTexto = (f) => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
@@ -134,4 +136,91 @@ export function copiarParaProjeto({ raiz, ids }, dir = DIR_CATALOGO) {
 // Pastas (área de uma coleção) que o Claude precisa ler para adaptar os documentos escolhidos.
 export function pastasDeLeitura(ids, dir = DIR_CATALOGO) {
   return [...new Set((ids || []).map((id) => resolverId(id, dir)).filter(Boolean).map((r) => path.join(dir, r.colecao, r.area)))];
+}
+
+// ---------- rascunhos de generalização ----------
+// Um "lote" é um trabalho do Claude que reescreve documentos sem as partes específicas do produto. Os rascunhos ficam numa pasta
+// temporária isolada (fora do projeto e da Central); só entram na biblioteca quando o dono aceita.
+export const DIR_RASCUNHOS = path.join(os.tmpdir(), 'central-rascunhos');
+const LOTE = /^[0-9a-f]{8}$/;
+const lerJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return d; } };
+
+// fontes: [{ abs, area, rel, colecao, substitui }]  (abs = arquivo original; colecao = onde o rascunho aceito será guardado)
+export function criarLote({ projeto, titulo, fontes, modo, dir = DIR_RASCUNHOS }) {
+  if (!fontes?.length) throw new Error('escolha pelo menos um documento');
+  const id = crypto.randomBytes(4).toString('hex');
+  const raiz = path.join(dir, id);
+  fs.mkdirSync(path.join(raiz, 'arquivos'), { recursive: true });
+  const lote = { id, projeto: String(projeto || ''), titulo: String(titulo || 'Generalização'), modo: String(modo || 'biblioteca'), criadoEm: new Date().toISOString(), chatId: '', fontes: fontes.map((f) => ({ abs: f.abs, area: f.area, rel: f.rel, colecao: f.colecao, substitui: f.substitui || '' })) };
+  fs.writeFileSync(path.join(raiz, 'lote.json'), JSON.stringify(lote, null, 2));
+  return { ...lote, pasta: path.join(raiz, 'arquivos') };
+}
+export function atualizarLote(id, patch, dir = DIR_RASCUNHOS) {
+  if (!LOTE.test(id)) throw new Error('lote inválido');
+  const f = path.join(dir, id, 'lote.json'); const l = lerJson(f, null); if (!l) throw new Error('lote não encontrado');
+  fs.writeFileSync(f, JSON.stringify({ ...l, ...patch }, null, 2));
+}
+export const pastaDoLote = (id, dir = DIR_RASCUNHOS) => (LOTE.test(String(id)) && fs.existsSync(path.join(dir, id, 'lote.json')) ? path.join(dir, id, 'arquivos') : null);
+
+// Lotes com os rascunhos que o Claude já escreveu. Cada item aponta para a fonte e diz se substitui um documento da biblioteca.
+export function listarLotes(dir = DIR_RASCUNHOS) {
+  let ids = []; try { ids = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && LOTE.test(e.name)).map((e) => e.name); } catch { return []; }
+  const out = [];
+  for (const id of ids) {
+    const l = lerJson(path.join(dir, id, 'lote.json'), null); if (!l) continue;
+    const itens = [];
+    for (const f of l.fontes) {
+      const abs = path.join(dir, id, 'arquivos', f.area, ...f.rel.split('/'));
+      if (!fs.existsSync(abs)) continue;
+      const txt = lerTexto(abs), orig = lerTexto(f.abs);
+      itens.push({ item: `${f.area}/${f.rel}`, area: f.area, areaNome: AREAS[f.area], arquivo: f.rel, colecao: f.colecao, substitui: f.substitui, titulo: titulo(txt, f.rel.replace(/\.md$/i, '')), resumo: resumo(txt), tituloOriginal: titulo(orig, f.rel.replace(/\.md$/i, '')), bytes: Buffer.byteLength(txt) });
+    }
+    out.push({ id, titulo: l.titulo, modo: l.modo, criadoEm: l.criadoEm, chatId: l.chatId || '', projeto: l.projeto, total: l.fontes.length, itens });
+  }
+  return out.sort((a, b) => String(b.criadoEm).localeCompare(String(a.criadoEm)));
+}
+
+function itemDoLote(loteId, item, dir) {
+  if (!LOTE.test(String(loteId))) throw new Error('lote inválido');
+  const l = lerJson(path.join(dir, loteId, 'lote.json'), null); if (!l) throw new Error('lote não encontrado');
+  const f = l.fontes.find((x) => `${x.area}/${x.rel}` === item); if (!f) throw new Error('rascunho não encontrado');
+  return { l, f, abs: path.join(dir, loteId, 'arquivos', f.area, ...f.rel.split('/')) };
+}
+export function lerRascunho(loteId, item, { original = false, dir = DIR_RASCUNHOS } = {}) {
+  const { f, abs } = itemDoLote(loteId, item, dir);
+  const arq = original ? f.abs : abs; let txt; try { txt = fs.readFileSync(arq, 'utf8'); } catch { throw new Error('arquivo não encontrado'); }
+  return { titulo: titulo(txt, f.rel), area: f.area, areaNome: AREAS[f.area], conteudo: txt, original };
+}
+
+// Aceita rascunhos: grava em catalogo/<coleção>/<área>/<arquivo> (substituindo o da biblioteca, se houver) e retira do lote.
+export function aceitarRascunhos(loteId, itens, { dir = DIR_RASCUNHOS, catalogo = DIR_CATALOGO, nomeColecao } = {}) {
+  const lista = itens === 'todos' ? listarLotes(dir).find((x) => x.id === loteId)?.itens.map((i) => i.item) || [] : [...new Set(itens || [])];
+  if (!lista.length) throw new Error('nenhum rascunho para aceitar');
+  const aceitos = [];
+  for (const it of lista) {
+    const { f, abs } = itemDoLote(loteId, it, dir);
+    if (!COL.test(f.colecao)) throw new Error('coleção inválida');
+    const destino = path.join(catalogo, f.colecao, f.area, ...f.rel.split('/'));
+    if (!destino.startsWith(path.join(catalogo, f.colecao, f.area) + path.sep)) throw new Error('caminho inválido');
+    fs.mkdirSync(path.dirname(destino), { recursive: true });
+    fs.copyFileSync(abs, destino); fs.rmSync(abs, { force: true });
+    const man = path.join(catalogo, f.colecao, 'manifest.json'); const m = lerJson(man, {});
+    fs.writeFileSync(man, JSON.stringify({ nome: m.nome || nomeColecao || f.colecao, publicadoEm: m.publicadoEm || new Date().toISOString(), atualizadoEm: new Date().toISOString() }, null, 2));
+    aceitos.push(`${f.colecao}/${f.area}/${f.rel}`);
+  }
+  limparLoteSeVazio(loteId, dir);
+  return { aceitos };
+}
+export function descartarRascunhos(loteId, itens, { dir = DIR_RASCUNHOS } = {}) {
+  if (!LOTE.test(String(loteId))) throw new Error('lote inválido');
+  const raiz = path.join(dir, loteId); if (!fs.existsSync(raiz)) throw new Error('lote não encontrado');
+  if (itens === 'todos') { fs.rmSync(raiz, { recursive: true, force: true }); return { descartados: 'todos' }; }
+  for (const it of [...new Set(itens || [])]) { const { abs } = itemDoLote(loteId, it, dir); fs.rmSync(abs, { force: true }); }
+  limparLoteSeVazio(loteId, dir);
+  return { descartados: itens.length };
+}
+function limparLoteSeVazio(loteId, dir) {
+  const l = listarLotes(dir).find((x) => x.id === loteId);
+  const f = path.join(dir, loteId, 'lote.json'); const job = lerJson(f, null);
+  if (l && l.itens.length === 0 && job && job.finalizado) fs.rmSync(path.join(dir, loteId), { recursive: true, force: true });
 }

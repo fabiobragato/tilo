@@ -162,3 +162,13 @@ test('explicação de escrita de arquivo', () => {
   assert.match(descrever('Write', { file_path: 'docs/a.md' }).resumo, /Gravar o arquivo/);
   assert.equal(descrever('Edit', { file_path: 'docs/a.md' }).nivel, 'altera');
 });
+
+// ---------- modo gen (rascunhos) ----------
+test('modo gen: só <área>/<arquivo>.md dentro da pasta de rascunhos', () => {
+  const R = path.resolve('C:/tmp/rascunhos/abc/arquivos');
+  const g = (f, tool = 'Write') => avaliarArquivo(tool, { file_path: f }, { root: R, existe: () => true, modo: 'gen' });
+  for (const f of ['backend/README.md', 'infra/sub/a.md', path.join(R, 'security', 'x.md')]) assert.equal(g(f).acao, 'permitir', f);
+  assert.equal(g('docs/backend/a.md').acao, 'negar');
+  for (const f of ['README.md', 'src/app.py', 'backend/a.txt', '../x/backend/a.md', 'C:/outra/backend/a.md', 'backend/.env', 'business/a.md']) assert.equal(g(f).acao, 'negar', f);
+  assert.equal(g('backend/a.md', 'Edit').acao, 'permitir');
+});

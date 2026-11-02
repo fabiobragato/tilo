@@ -99,3 +99,41 @@ test('remover documento e coleção; pastas de leitura', () => {
   removerColecao('app', cat);
   assert.equal(listarColecoes(cat).length, 0);
 });
+
+// ---------- rascunhos de generalização ----------
+import { criarLote, atualizarLote, listarLotes, lerRascunho, aceitarRascunhos, descartarRascunhos, pastaDoLote } from './catalogo.mjs';
+
+test('lote de generalização: listar, ler, aceitar (substitui na biblioteca) e descartar', () => {
+  const origem = projeto(), cat = tmp(), ras = tmp();
+  publicar({ raizProjeto: origem, colecao: 'app', nome: 'App', arquivos: ['backend/README.md', 'backend/architecture.md'] }, cat);
+  const fonte = (rel) => ({ abs: path.join(cat, 'app', 'backend', rel), area: 'backend', rel, colecao: 'app', substitui: `app/backend/${rel}` });
+  const lote = criarLote({ projeto: 'app', titulo: 'Generalizar', fontes: [fonte('README.md'), fonte('architecture.md')], modo: 'biblioteca', dir: ras });
+  assert.match(lote.id, /^[0-9a-f]{8}$/); assert.equal(pastaDoLote(lote.id, ras), lote.pasta); assert.equal(pastaDoLote('../x', ras), null);
+  assert.equal(listarLotes(ras)[0].itens.length, 0); // o Claude ainda não escreveu nada
+  grava(lote.pasta, 'backend/README.md', '# Backend em .NET com Minimal APIs\n\nGuia genérico de backend.');
+  grava(lote.pasta, 'backend/architecture.md', '# Arquitetura\n\nTexto genérico.');
+  const l = listarLotes(ras)[0];
+  assert.deepEqual(l.itens.map((i) => i.titulo), ['Backend em .NET com Minimal APIs', 'Arquitetura']);
+  assert.equal(l.itens[0].tituloOriginal, 'Backend'); assert.equal(l.itens[0].substitui, 'app/backend/README.md');
+  assert.match(lerRascunho(lote.id, 'backend/README.md', { dir: ras }).conteudo, /Guia genérico/);
+  assert.match(lerRascunho(lote.id, 'backend/README.md', { original: true, dir: ras }).conteudo, /Minimal APIs e EF Core/);
+  const r = aceitarRascunhos(lote.id, ['backend/README.md'], { dir: ras, catalogo: cat });
+  assert.deepEqual(r.aceitos, ['app/backend/README.md']);
+  assert.equal(lerDoc('app/backend/README.md', cat).titulo, 'Backend em .NET com Minimal APIs'); // substituiu o da biblioteca
+  assert.equal(listarLotes(ras)[0].itens.length, 1);
+  descartarRascunhos(lote.id, ['backend/architecture.md'], { dir: ras });
+  assert.equal(listarLotes(ras)[0].itens.length, 0);
+  atualizarLote(lote.id, { finalizado: true }, ras);
+  grava(lote.pasta, 'backend/README.md', '# De novo'); aceitarRascunhos(lote.id, 'todos', { dir: ras, catalogo: cat });
+  assert.equal(listarLotes(ras).length, 0); // lote finalizado e vazio some
+  assert.throws(() => aceitarRascunhos('../..', ['backend/a.md'], { dir: ras, catalogo: cat }), /inválido/);
+});
+
+test('descartar tudo remove o lote', () => {
+  const ras = tmp(), cat = tmp();
+  const lote = criarLote({ projeto: 'x', fontes: [{ abs: path.join(cat, 'a.md'), area: 'infra', rel: 'a.md', colecao: 'x' }], dir: ras });
+  grava(lote.pasta, 'infra/a.md', '# A');
+  descartarRascunhos(lote.id, 'todos', { dir: ras });
+  assert.equal(listarLotes(ras).length, 0);
+  assert.throws(() => criarLote({ projeto: 'x', fontes: [], dir: ras }), /pelo menos um/);
+});

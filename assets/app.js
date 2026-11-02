@@ -477,6 +477,23 @@ document.addEventListener('click', async (e) => {
         break;
       }
       case 'bib-fechar': $('#bdlg').close(); break;
+      case 'gen-abrir': abrirGeneralizar(d.todos === '1'); break;
+      case 'gen-ok': {
+        const modelo = $('#bib-modelo')?.value || 'sonnet';
+        const corpo = d.fonte === 'publicar' ? { arquivos: [...document.querySelectorAll('.pub-doc:checked')].map((x) => x.value), modelo } : { ids: JSON.parse(d.ids || '[]'), modelo };
+        el.disabled = true;
+        try { await api('/api/biblioteca/generalizar', corpo); $('#bdlg').close(); S.bib.sel.clear(); toast('O Claude começou. Os rascunhos aparecem no topo da biblioteca.'); await loadBiblioteca(); window.scrollTo({ top: 0 }); }
+        catch (x) { toast(x.message); el.disabled = false; }
+        break;
+      }
+      case 'rasc-ver': case 'rasc-orig': {
+        try { const x = await api(`/api/biblioteca/rascunho?lote=${d.lote}&item=${encodeURIComponent(d.item)}${act === 'rasc-orig' ? '&original=1' : ''}`); $('#dt').textContent = `${act === 'rasc-orig' ? 'Original' : 'Rascunho generalizado'} · ${x.titulo}`; $('#dc').innerHTML = md(x.conteudo); $('#dlg').showModal(); } catch (x) { toast(x.message); }
+        break;
+      }
+      case 'rasc-ok': { try { await api('/api/biblioteca/rascunho/aceitar', { lote: d.lote, itens: [d.item] }); toast('Aceito: já está na biblioteca.'); await loadBiblioteca(); } catch (x) { toast(x.message); } break; }
+      case 'rasc-no': { try { await api('/api/biblioteca/rascunho/descartar', { lote: d.lote, itens: [d.item] }); await loadBiblioteca(); } catch (x) { toast(x.message); } break; }
+      case 'rasc-ok-todos': { if (confirm(`Aceitar ${d.n} rascunhos? Eles substituem as versões atuais na biblioteca.`)) { try { const r = await api('/api/biblioteca/rascunho/aceitar', { lote: d.lote, itens: 'todos' }); toast(`${r.aceitos.length} documentos atualizados na biblioteca.`); await loadBiblioteca(); } catch (x) { toast(x.message); } } break; }
+      case 'rasc-no-todos': { if (confirm('Descartar todos os rascunhos deste lote? (Se o Claude ainda estiver trabalhando, os que faltam não serão aproveitados.)')) { try { await api('/api/biblioteca/rascunho/descartar', { lote: d.lote, itens: 'todos' }); await loadBiblioteca(); } catch (x) { toast(x.message); } } break; }
       case 'bib-pub': abrirPublicar(); break;
       case 'bib-pub-ok': {
         const arquivos = [...document.querySelectorAll('.pub-doc:checked')].map((x) => x.value);
@@ -566,10 +583,13 @@ function renderDocumentacao() {
 // ---------- Biblioteca de documentos ----------
 async function loadBiblioteca(soLista) {
   const q = S.bib?.q || '';
-  try { const g = await api('/api/biblioteca?q=' + encodeURIComponent(q)); S.bib = { ...g, q, area: S.bib?.area || '', col: S.bib?.col || '', sel: S.bib?.sel || new Set() }; }
+  try { const [g, r] = await Promise.all([api('/api/biblioteca?q=' + encodeURIComponent(q)), api('/api/biblioteca/rascunhos')]); S.bib = { ...g, lotes: r.lotes, q, area: S.bib?.area || '', col: S.bib?.col || '', sel: S.bib?.sel || new Set() }; }
   catch (x) { const r = $('#bib-root'); if (r && !soLista) r.innerHTML = `<div class="note">Não consegui carregar: ${esc(x.message)}</div>`; return; }
   for (const id of [...S.bib.sel]) if (!S.bib.docs.some((d) => d.id === id) && !q) S.bib.sel.delete(id); // some da biblioteca -> sai da seleção
   renderBiblioteca(!soLista);
+  const rodando = S.bib.lotes.some((l) => l.rodando);
+  if (S.bibTimer && !rodando) { clearInterval(S.bibTimer); S.bibTimer = null; }
+  if (!S.bibTimer && rodando) S.bibTimer = setInterval(() => { if (route() !== 'biblioteca') { clearInterval(S.bibTimer); S.bibTimer = null; return; } loadBiblioteca(true); }, 5000);
 }
 function renderBiblioteca(forcar) {
   const root = $('#bib-root'); if (!root || !S.bib) return;
@@ -585,10 +605,16 @@ function renderBiblioteca(forcar) {
       <div class="bib-chips" id="bib-chips"></div>
       ${B.colecoes.length > 1 ? `<label class="bib-col">Projeto de origem <select id="bib-col" class="sel sm"><option value="">Todos</option>${B.colecoes.map((c) => `<option value="${esc(c.id)}" ${B.col === c.id ? 'selected' : ''}>${esc(c.nome)} (${c.total})</option>`).join('')}</select></label>` : ''}
     </div></div>
+    <div id="bib-rasc"></div>
     <div id="bib-list"></div>
     <div class="bib-bar" id="bib-bar" hidden></div>
     <div id="bib-cols"></div>`;
   }
+  $('#bib-rasc').innerHTML = (B.lotes || []).map((l) => `<div class="card bib-lote"><div class="card-head"><span class="ico"><i class="pi ${l.rodando ? 'pi-spin pi-spinner' : 'pi-file-edit'}"></i></span><h3>${esc(l.titulo)}</h3><span class="muted small">${l.itens.length} de ${l.total} pronto${l.itens.length === 1 ? '' : 's'}${l.rodando ? ' · o Claude está escrevendo…' : ''}</span></div><div class="card-body">
+    <p class="muted small">${l.rodando ? 'Pode levar vários minutos. Os rascunhos aparecem aqui conforme ficam prontos. <b>Nada entra na biblioteca sem a sua aceitação.</b>' : l.itens.length ? 'Revise cada rascunho. <b>Aceitar</b> grava na biblioteca e substitui a versão atual, quando houver. Use <b>Ver original</b> para comparar.' : 'Terminou sem gerar rascunhos: o Claude pode ter considerado os documentos específicos demais. Veja a conversa para o motivo.'}</p>
+    ${l.itens.map((i) => `<div class="bib-rasc"><div class="bib-meta"><div class="top"><b>${esc(i.titulo)}</b><span class="lv lv-ok">${esc(i.areaNome)}</span></div><span class="muted small">título anterior: ${esc(i.tituloOriginal)}</span>${i.resumo ? `<p>${esc(i.resumo)}</p>` : ''}</div>
+      <div class="bib-rasc-btns"><button class="btn sm" data-act="rasc-ver" data-lote="${l.id}" data-item="${esc(i.item)}"><i class="pi pi-eye"></i> Ver rascunho</button><button class="btn sm" data-act="rasc-orig" data-lote="${l.id}" data-item="${esc(i.item)}">Ver original</button><button class="btn sm primary" data-act="rasc-ok" data-lote="${l.id}" data-item="${esc(i.item)}"><i class="pi pi-check"></i> Aceitar</button><button class="btn sm" data-act="rasc-no" data-lote="${l.id}" data-item="${esc(i.item)}">Descartar</button></div></div>`).join('')}
+    <div class="bib-lote-acoes">${l.chatId ? `<a class="link" href="#/chat?s=${l.chatId}">Ver a conversa</a>` : ''}<span class="sp"></span>${l.itens.length > 1 ? `<button class="btn sm primary" data-act="rasc-ok-todos" data-lote="${l.id}" data-n="${l.itens.length}"><i class="pi pi-check-circle"></i> Aceitar todos (${l.itens.length})</button>` : ''}<button class="btn sm" data-act="rasc-no-todos" data-lote="${l.id}">${l.rodando ? 'Cancelar e descartar' : 'Descartar o lote'}</button></div></div></div>`).join('');
   $('#bib-chips').innerHTML = `<button class="chipbtn ${B.area ? '' : 'on'}" data-act="bib-area" data-a="">Todas as áreas <span>${B.q ? B.docs.length : totalGeral}</span></button>` +
     B.areas.filter((a) => a.total).map((a) => `<button class="chipbtn ${B.area === a.id ? 'on' : ''}" data-act="bib-area" data-a="${a.id}">${esc(a.nome)} <span>${B.docs.filter((d) => d.area === a.id).length}</span></button>`).join('');
   $('#bib-list').innerHTML = !totalGeral
@@ -599,8 +625,8 @@ function renderBiblioteca(forcar) {
     : `<div class="card"><div class="card-body bib-vazio"><i class="pi pi-search"></i><b>Nada encontrado</b><span class="muted">Tente outras palavras ou outra área.</span></div></div>`;
   const n = B.sel.size, bar = $('#bib-bar');
   bar.hidden = !n;
-  bar.innerHTML = n ? `<b>${n} documento${n === 1 ? '' : 's'} selecionado${n === 1 ? '' : 's'}</b><span class="sp"></span><button class="btn" data-act="bib-limpar">Limpar seleção</button><button class="btn primary" data-act="bib-anexar"><i class="pi pi-paperclip"></i> Anexar ao projeto</button>` : '';
-  $('#bib-cols').innerHTML = B.colecoes.length ? `<details class="doc-det bib-gerir"><summary>Gerenciar o que foi publicado</summary>${B.colecoes.map((c) => `<div class="bib-col-bloco"><div class="bib-col-cab"><b>${esc(c.nome)}</b><span class="muted small">${c.total} documento${c.total === 1 ? '' : 's'}${c.publicadoEm ? ` · publicado em ${quando(c.publicadoEm)}` : ''}</span><span class="sp"></span><button class="btn sm" data-act="bib-col-del" data-id="${esc(c.id)}" data-nome="${esc(c.nome)}"><i class="pi pi-trash"></i> Remover tudo desta origem</button></div>
+  bar.innerHTML = n ? `<b>${n} documento${n === 1 ? '' : 's'} selecionado${n === 1 ? '' : 's'}</b><span class="sp"></span><button class="btn" data-act="bib-limpar">Limpar seleção</button><button class="btn" data-act="gen-abrir" title="O Claude reescreve os documentos escolhidos sem o que é específico do produto; você revisa antes de entrarem na biblioteca"><i class="pi pi-sparkles"></i> Generalizar com o Claude</button><button class="btn primary" data-act="bib-anexar"><i class="pi pi-paperclip"></i> Anexar ao projeto</button>` : '';
+  $('#bib-cols').innerHTML = B.colecoes.length ? `<details class="doc-det bib-gerir"><summary>Gerenciar o que foi publicado</summary><div class="bib-gerir-topo"><button class="btn sm" data-act="gen-abrir" data-todos="1"><i class="pi pi-sparkles"></i> Generalizar toda a biblioteca com o Claude</button></div>${B.colecoes.map((c) => `<div class="bib-col-bloco"><div class="bib-col-cab"><b>${esc(c.nome)}</b><span class="muted small">${c.total} documento${c.total === 1 ? '' : 's'}${c.publicadoEm ? ` · publicado em ${quando(c.publicadoEm)}` : ''}</span><span class="sp"></span><button class="btn sm" data-act="bib-col-del" data-id="${esc(c.id)}" data-nome="${esc(c.nome)}"><i class="pi pi-trash"></i> Remover tudo desta origem</button></div>
     <ul class="perm-list">${B.docs.filter((d) => d.colecao === c.id).map((d) => `<li class="bib-linha"><span><b>${esc(d.titulo)}</b> <span class="muted small">${esc(d.areaNome)} · ${esc(d.arquivo)}</span></span><button class="btn sm" data-act="bib-doc-del" data-id="${esc(d.id)}" data-nome="${esc(d.titulo)}"><i class="pi pi-times"></i> Remover</button></li>`).join('')}</ul></div>`).join('')}</details>` : '';
 }
 function abrirAnexar() {
@@ -614,14 +640,26 @@ function abrirAnexar() {
     <div class="aft"><span class="sp"></span><button class="btn" data-act="bib-fechar">Cancelar</button><button class="btn primary" data-act="bib-anexar-ok"><i class="pi pi-check"></i> Anexar</button></div>`;
   $('#bdlg').showModal();
 }
+function abrirGeneralizar(todos) {
+  const B = S.bib, ids = todos ? B.docs.map((d) => d.id) : [...B.sel];
+  if (!ids.length) return;
+  $('#bdlg').innerHTML = `<div class="ahd"><span class="aic"><i class="pi pi-sparkles"></i></span><div class="att"><b id="bdlg-t">Generalizar ${ids.length} documento${ids.length === 1 ? '' : 's'} com o Claude</b><span class="asub">${todos ? 'Todos os documentos da biblioteca.' : 'Os documentos que você marcou.'}</span></div></div>
+    <div class="abd"><ul class="doc-bul"><li>O Claude <b>reescreve cada documento sem o que é específico do seu produto</b> (nomes, domínio de negócio, módulos, serviços próprios) e mantém o que é padrão técnico reaproveitável.</li>
+      <li>Cada um ganha um <b>título que diz o escopo</b> (por exemplo, “Autenticação e autorização em backends .NET multi-tenant por empresa”) e um parágrafo inicial dizendo a que tipo de projeto serve.</li>
+      <li>O resultado vira <b>rascunho</b>: você vê, compara com o original e só então aceita. Nada entra na biblioteca sozinho.</li>
+      <li>Leva de alguns minutos a algumas dezenas de minutos, conforme a quantidade, e usa a sua assinatura do Claude.</li></ul>
+      <label class="bib-mod">Modelo de IA <select id="bib-modelo" class="sel sm"><option value="sonnet">Sonnet (padrão)</option><option value="opus">Opus (mais caprichado, usa mais)</option><option value="haiku">Haiku (simples)</option></select></label></div>
+    <div class="aft"><span class="sp"></span><button class="btn" data-act="bib-fechar">Cancelar</button><button class="btn primary" data-act="gen-ok" data-fonte="biblioteca" data-ids="${esc(JSON.stringify(ids))}"><i class="pi pi-sparkles"></i> Começar</button></div>`;
+  $('#bdlg').showModal();
+}
 function abrirPublicar() {
   const B = S.bib, meus = B.meus || [], nome = B.projeto?.nome || 'este projeto';
   $('#bdlg').innerHTML = `<div class="ahd"><span class="aic"><i class="pi pi-upload"></i></span><div class="att"><b id="bdlg-t">Publicar documentos de ${esc(nome)}</b><span class="asub">Ficam na biblioteca para reaproveitar em outros projetos.</span></div></div>
-    <div class="abd">${meus.length ? `<div class="pub-aviso"><b>Marque só o que serve para qualquer projeto.</b> Deixe de fora documentos sobre funcionalidades ou serviços específicos do seu produto (por exemplo: automação do blog, assistente de IA, tutoriais, deploy do seu servidor). Use <b>ver</b> para conferir o conteúdo antes. Regras de negócio, planejamento e pendências nunca entram. Se você já publicou antes, os mesmos arquivos são atualizados.</div>
+    <div class="abd">${meus.length ? `<div class="pub-aviso"><b>Marque só o que serve para qualquer projeto.</b> Deixe de fora documentos sobre funcionalidades ou serviços específicos do seu produto (por exemplo: automação do blog, assistente de IA, tutoriais, deploy do seu servidor). Use <b>ver</b> para conferir o conteúdo. Regras de negócio, planejamento e pendências nunca entram.<br><b>Recomendado: generalizar com o Claude.</b> Ele reescreve cada documento sem o que é do seu produto, com um título que diz para que tipo de projeto serve, e você revisa antes de entrar na biblioteca. <em>Publicar como está</em> copia o documento original.</div>
       <div class="pub-lista">${meus.map((a) => `<div class="pub-area-bloco"><label class="pub-ah"><input type="checkbox" class="pub-area" value="${a.area}"> <b>${esc(a.nome)}</b> <span class="muted small">${a.arquivos.length} documento${a.arquivos.length === 1 ? '' : 's'}${a.area === 'data-platform' ? ' (costuma ser específico do produto)' : ''} · marcar todos</span></label>
         ${a.arquivos.map((f) => `<label class="pub-item"><input type="checkbox" class="pub-doc" data-area="${a.area}" value="${esc(a.area + '/' + f.rel)}"> ${esc(f.titulo)} <span class="muted small">${esc(f.rel)}</span><button type="button" class="link" data-act="file" data-p="${esc('docs/' + a.area + '/' + f.rel)}">ver</button></label>`).join('')}</div>`).join('')}</div>`
       : '<p class="muted">Este projeto ainda não tem documentação técnica em <code>docs/</code> (backend, frontend, infra, deploy, segurança ou dados). Monte-a na aba Documentação primeiro.</p>'}</div>
-    <div class="aft"><span class="sp"></span><button class="btn" data-act="bib-fechar">Cancelar</button>${meus.length ? '<button class="btn primary" data-act="bib-pub-ok"><i class="pi pi-upload"></i> Publicar na biblioteca</button>' : ''}</div>`;
+    <div class="aft">${meus.length ? '<label class="bib-mod">Modelo de IA <select id="bib-modelo" class="sel sm"><option value="sonnet">Sonnet (padrão)</option><option value="opus">Opus (mais caprichado)</option><option value="haiku">Haiku (simples)</option></select></label>' : ''}<span class="sp"></span><button class="btn" data-act="bib-fechar">Cancelar</button>${meus.length ? '<button class="btn" data-act="bib-pub-ok"><i class="pi pi-upload"></i> Publicar como está</button><button class="btn primary" data-act="gen-ok" data-fonte="publicar"><i class="pi pi-sparkles"></i> Generalizar com o Claude</button>' : ''}</div>`;
   $('#bdlg').showModal();
 }
 const NIVEL = { leitura: ['Só consulta', 'lv-ok'], altera: ['Altera arquivos', 'lv-warn'], rede: ['Usa a internet', 'lv-warn'], servidor: ['Mexe em servidor/produção', 'lv-bad'], desconhecido: ['Não reconhecido', 'lv-warn'] };

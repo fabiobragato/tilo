@@ -238,14 +238,15 @@ function startJob(chat, text) {
   const args = ['-p', '--output-format', 'text', '--allowedTools', tools, '--setting-sources', 'project', '--settings', SETTINGS_FILE,
     '--mcp-config', mcpCfg, '--strict-mcp-config', '--permission-prompt-tool', 'mcp__central__approve', '--append-system-prompt', JSON.stringify(SYSTEM)];
   if (bloqueadas.length) args.push('--disallowedTools', bloqueadas.join(','));
-  const dirsRef = catalogo.pastasDeLeitura(chat.referencias || []); // documentos da biblioteca: leitura liberada, escrita bloqueada (settings)
+  const dirsRef = chat.gen ? chat.gen.leitura : catalogo.pastasDeLeitura(chat.referencias || []); // documentos da biblioteca: leitura liberada, escrita bloqueada (settings)
   if (dirsRef.length) args.push('--add-dir', ...dirsRef.map((d) => `"${d}"`));
   if (chat.plan && !doc) args.push('--permission-mode', 'plan');
   args.push('--model', MODELS.includes(chat.model) ? chat.model : DEFAULT_MODEL); // validado contra MODELS
   args.push(first ? '--session-id' : '--resume', chat.id);
   // shell:true porque no Windows `claude` é .cmd. Nenhum texto livre do usuário vai em args (vai por stdin).
   // Chaves de API vazias de propósito: nunca usar API paga, só a assinatura (login do Claude Code).
-  const child = spawn('claude', args, { cwd: proj.ROOT, shell: true, windowsHide: true, env: { ...process.env, ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '' } });
+  const child = spawn('claude', args, { cwd: chat.gen ? chat.gen.dir : proj.ROOT, // generalização: pasta de rascunhos isolada; demais: raiz do projeto
+    shell: true, windowsHide: true, env: { ...process.env, ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '' } });
   const job = { buf: '', done: false, child, err: '' };
   jobs.set(chat.id, job);
   child.stdout.on('data', (d) => { job.buf += d; });
@@ -254,6 +255,7 @@ function startJob(chat, text) {
     if (job.done) return;
     job.done = true;
     denyAll(chat.id, 'Conversa encerrada.');
+    if (chat.gen) { try { catalogo.atualizarLote(chat.gen.lote, { finalizado: true }); } catch {} }
     try { fs.unlinkSync(mcpCfg); } catch {}
     if (code || msg) job.buf += `\n[${msg || `claude saiu com código ${code}`}]\n${job.err.trim()}`;
     const c = loadChats().chats[chat.id];
@@ -396,6 +398,15 @@ async function core(req, res, url) {
             colecoes: catalogo.listarColecoes(), docs, meus: catalogo.docsDoProjeto(P().ROOT), projeto: { id: P().id, nome: P().nome },
           });
         }
+        case '/api/biblioteca/rascunhos': {
+          const chats = Object.values(loadChats().chats);
+          const lotes = catalogo.listarLotes().filter((l) => l.projeto === P().id).map((l) => {
+            const c = chats.find((x) => x.gen?.lote === l.id);
+            return { ...l, chatId: c?.id || l.chatId, rodando: !!(c && jobs.get(c.id) && !jobs.get(c.id).done) };
+          });
+          return send(res, 200, { lotes });
+        }
+        case '/api/biblioteca/rascunho': { try { return send(res, 200, catalogo.lerRascunho(url.searchParams.get('lote') || '', url.searchParams.get('item') || '', { original: url.searchParams.get('original') === '1' })); } catch (e) { return send(res, 404, { erro: e.message }); } }
         case '/api/biblioteca/doc': { try { return send(res, 200, catalogo.lerDoc(url.searchParams.get('id') || '')); } catch (e) { return send(res, 404, { erro: e.message }); } }
         case '/api/permissoes': {
           const c = cfgSegura(P().politica);
@@ -466,6 +477,45 @@ async function core(req, res, url) {
           audit(P(), { chat: '-', tool: 'biblioteca', resumo: String(body.id || body.colecao), risco: 'normal', decisao: 'removido', quem: 'dono', motivo: 'removido da biblioteca' });
           return send(res, 200, { ok: true });
         } catch (e) { return send(res, 400, { erro: e.message }); }
+      }
+      case '/api/biblioteca/generalizar': { // o Claude reescreve os documentos sem o que é do produto; o dono revisa os rascunhos antes de entrarem na biblioteca
+        const idsLib = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(String))], arqs = [...new Set((Array.isArray(body.arquivos) ? body.arquivos : []).map(String))];
+        if (!idsLib.length && !arqs.length) return send(res, 400, { erro: 'escolha pelo menos um documento' });
+        if (idsLib.length + arqs.length > 60) return send(res, 400, { erro: 'no máximo 60 documentos por vez' });
+        if (Object.values(loadChats().chats).some((c) => c.doc && jobs.get(c.id) && !jobs.get(c.id).done)) return send(res, 409, { erro: 'já existe um trabalho do Claude em andamento neste projeto' });
+        const fontes = [];
+        const nomes = Object.fromEntries(catalogo.listarColecoes().map((c) => [c.id, c.nome]));
+        for (const id of idsLib) { const r = catalogo.resolverId(id); if (!r || !fs.existsSync(r.abs)) return send(res, 400, { erro: `documento inválido: ${id}` }); fontes.push({ abs: r.abs, area: r.area, rel: r.rel, colecao: r.colecao, substitui: id, origem: nomes[r.colecao] || r.colecao }); }
+        const meus = catalogo.docsDoProjeto(P().ROOT);
+        for (const a of arqs) {
+          const [area, ...resto] = a.split('/'), rel = resto.join('/'), grupo = meus.find((g) => g.area === area);
+          if (!grupo || !grupo.arquivos.some((f) => f.rel === rel)) return send(res, 400, { erro: `documento inválido: ${a}` });
+          fontes.push({ abs: path.join(P().ROOT, 'docs', area, ...rel.split('/')), area, rel, colecao: P().id, substitui: `${P().id}/${a}`, origem: P().nome });
+        }
+        let tpl; try { tpl = fs.readFileSync(path.join(HERE, 'modelos', 'generalizar.md'), 'utf8'); } catch { return send(res, 500, { erro: 'modelo de generalização não encontrado' }); }
+        const lote = catalogo.criarLote({ projeto: P().id, titulo: `Generalizar ${fontes.length} documento${fontes.length === 1 ? '' : 's'}`, fontes, modo: arqs.length ? 'publicar' : 'biblioteca' });
+        const lista = fontes.map((f) => `- “${f.area}/${f.rel}” (origem: ${f.origem}) — ler: ${f.abs} — gravar em: ${f.area}/${f.rel}`).join('\n');
+        const prompt = tpl.split('{{LISTA_DOCS}}').join(lista);
+        const modelo = MODELS.includes(body.modelo) ? body.modelo : DEFAULT_MODEL;
+        const leitura = [...new Set(fontes.map((f) => path.dirname(f.abs)))];
+        const c = { id: crypto.randomUUID(), title: 'Generalizar documentos para a biblioteca', itemId: '', contexto: '', model: modelo, plan: false, edit: false, exec: false, doc: true, gen: { lote: lote.id, dir: lote.pasta, leitura }, started: false, created: Date.now(), updated: Date.now(),
+          messages: [{ role: 'user', text: `Generalizar ${fontes.length} documento${fontes.length === 1 ? '' : 's'} para a biblioteca (sem o que é específico do produto).`, ts: Date.now(), model: modelo, plan: false }] };
+        saveChat(c);
+        try { catalogo.atualizarLote(lote.id, { chatId: c.id }); } catch {}
+        audit(P(), { chat: c.id, tool: 'biblioteca', resumo: `generalizar ${fontes.length} documento(s)`, risco: 'normal', decisao: 'iniciado', quem: 'dono', motivo: `lote ${lote.id}` });
+        startJob(c, prompt);
+        return send(res, 200, { ...chatView(c), lote: lote.id });
+      }
+      case '/api/biblioteca/rascunho/aceitar': {
+        try {
+          const r = catalogo.aceitarRascunhos(String(body.lote || ''), body.itens === 'todos' ? 'todos' : (Array.isArray(body.itens) ? body.itens.map(String) : []), { nomeColecao: P().nome });
+          audit(P(), { chat: '-', tool: 'biblioteca', resumo: `aceitou ${r.aceitos.length} rascunho(s) generalizado(s)`, risco: 'normal', decisao: 'publicado', quem: 'dono', motivo: r.aceitos.join(', ').slice(0, 400) });
+          return send(res, 200, r);
+        } catch (e) { return send(res, 400, { erro: e.message }); }
+      }
+      case '/api/biblioteca/rascunho/descartar': {
+        try { return send(res, 200, catalogo.descartarRascunhos(String(body.lote || ''), body.itens === 'todos' ? 'todos' : (Array.isArray(body.itens) ? body.itens.map(String) : []))); }
+        catch (e) { return send(res, 400, { erro: e.message }); }
       }
       case '/api/biblioteca/anexar': { // biblioteca -> este projeto: copiar como está, ou o Claude adapta ao código
         const ids = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(String))].slice(0, 40);
@@ -598,7 +648,7 @@ async function core(req, res, url) {
         if (!UUID.test(chatId) || !job || job.done || !loadChats().chats[chatId]) return send(res, 409, { erro: 'conversa não está em execução' });
         const tool = str(body.tool_name, 80), input = body.input && typeof body.input === 'object' ? body.input : {};
         const v = loadChats().chats[chatId].doc && FERRAMENTAS_ARQUIVO.includes(tool)
-          ? avaliarArquivo(tool, input, { root: P().ROOT, existe: fs.existsSync })
+          ? (loadChats().chats[chatId].gen ? avaliarArquivo(tool, input, { root: loadChats().chats[chatId].gen.dir, existe: fs.existsSync, modo: 'gen' }) : avaliarArquivo(tool, input, { root: P().ROOT, existe: fs.existsSync }))
           : avaliar(tool, input, compilar(P().politica));
         if (v.acao !== 'perguntar') {
           audit(P(), { chat: chatId, tool, resumo: v.resumo.slice(0, 4000), risco: v.risco, decisao: v.acao === 'permitir' ? 'allow' : 'deny', quem: 'política', motivo: v.motivo });

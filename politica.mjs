@@ -281,7 +281,10 @@ export function descrever(tool, input = {}) {
 // ou CLAUDE.md é criado direto; alterar arquivo que já existe pede aprovação; qualquer outro lugar (código, segredos, fora do projeto) é bloqueado.
 const PASTAS_DOC = new Set(['docs', 'planning', 'pendencias']);
 const SEGREDO = /(^|[\\/])\.env(?!\.example)|\.ssh|id_(ed25519|rsa|ecdsa)|\.pem$|\.token$|credentials/i;
-export function avaliarArquivo(tool, input = {}, { root, existe = () => false } = {}) {
+const AREAS_GEN = new Set(['backend', 'frontend', 'infra', 'deploy', 'security', 'data-platform']);
+// modo 'gen': conversa que generaliza documentos. A raiz é uma pasta de rascunhos isolada; só se escreve <área>/<arquivo>.md ali
+// (rascunho é descartável, então sobrescrever o próprio rascunho é permitido).
+export function avaliarArquivo(tool, input = {}, { root, existe = () => false, modo = 'docs' } = {}) {
   const f = String(input?.file_path ?? input?.path ?? '').trim();
   const nega = (motivo) => ({ acao: 'negar', risco: 'normal', resumo: `${tool} ${f}`, motivo, origem: 'fábrica' });
   if (!FERRAMENTAS_ARQUIVO.includes(tool) || !f || !root) return nega('pedido de escrita inválido');
@@ -289,6 +292,11 @@ export function avaliarArquivo(tool, input = {}, { root, existe = () => false } 
   if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return nega('fora da pasta do projeto');
   if (SEGREDO.test(rel)) return nega('arquivo de segredos');
   const partes = rel.split(path.sep), primeiro = partes[0].toLowerCase();
+  if (modo === 'gen') {
+    const okGen = partes.length >= 2 && AREAS_GEN.has(partes[0]) && partes.slice(1).every((s) => /^[A-Za-z0-9][\w.\- ]{0,80}$/.test(s)) && partes[partes.length - 1].toLowerCase().endsWith('.md');
+    if (!okGen) return nega('o rascunho só pode ser <área>/<arquivo>.md (backend, frontend, infra, deploy, security ou data-platform)');
+    return { acao: 'permitir', risco: 'normal', resumo: `${tool} ${partes.join('/')}`, motivo: 'rascunho de generalização', origem: 'fábrica' };
+  }
   const ok = (partes.length === 1 && primeiro === 'claude.md') || (partes.length > 1 && PASTAS_DOC.has(primeiro));
   if (!ok) return nega('a documentação só pode escrever em docs/, planning/, pendencias/ e CLAUDE.md');
   const relUnix = partes.join('/');
