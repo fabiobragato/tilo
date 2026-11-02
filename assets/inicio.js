@@ -70,7 +70,7 @@ function abrirForm(modoEdicao) {
   $('#n-raiz').required = !modoEdicao;
   $('#novo-t').textContent = modoEdicao ? 'Editar projeto' : 'Novo projeto';
   $('.nic i').className = 'pi ' + (modoEdicao ? 'pi-pencil' : 'pi-plus');
-  $('#novo-sub').textContent = modoEdicao ? 'Altera nome, descrição, cor e imagens. A pasta do projeto não muda.' : 'Adiciona o projeto à Central. Os dados dele ficam aqui, não dentro da pasta do projeto.';
+  $('#novo-sub').textContent = modoEdicao ? 'Altera nome, descrição, cor e imagens. A pasta do projeto não muda.' : 'Projeto novo (pasta vazia) ou que já existe com código. Os dados dele ficam na Central, não dentro da pasta do projeto.';
   $('#n-ok-t').textContent = modoEdicao ? 'Salvar' : 'Adicionar';
   $('#n-err').hidden = true; $('#novo').showModal(); $('#n-nome').focus();
 }
@@ -95,6 +95,7 @@ $('#novo-form').addEventListener('submit', async (e) => {
       : await api('/api/projetos', { ...dados, raiz: $('#n-raiz').value.trim(), estruturaBase: $('#n-base').checked });
     if (S.editId) r.id = S.editId, r.criado = [];
     S.v = Date.now();
+    if (!S.editId && $('#n-doc').checked) { location.href = `/p/${r.id}#/documentacao`; return; } // projeto existente: segue para a tela de documentação
     $('#novo').close();
     await carregar();
     S.sel = Math.max(0, S.projetos.findIndex((p) => p.id === r.id)); render();

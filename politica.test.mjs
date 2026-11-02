@@ -132,3 +132,33 @@ test('listas para a tela não expõem regex', () => {
   for (const k of ['negar', 'producao', 'permitir']) for (const r of f[k]) { assert.ok(r.titulo && r.descricao); assert.deepEqual(Object.keys(r), ['titulo', 'descricao']); }
   assert.ok(listarPacotes().every((p) => p.id && p.titulo && p.exemplos.length));
 });
+
+// ---------- escrita de arquivos (documentação) ----------
+import { avaliarArquivo } from './politica.mjs';
+import path from 'node:path';
+const RAIZ = path.resolve('C:/proj/app');
+const w = (tool, f, existentes = []) => avaliarArquivo(tool, { file_path: f }, { root: RAIZ, existe: (abs) => existentes.map((e) => path.resolve(RAIZ, e)).includes(abs) });
+
+test('documentação: arquivo novo em docs/planning/pendencias/CLAUDE.md é criado direto', () => {
+  for (const f of ['docs/README.md', 'docs/backend/architecture.md', 'planning/README.md', 'pendencias/README.md', 'CLAUDE.md', path.resolve(RAIZ, 'docs/x.md')])
+    assert.equal(w('Write', f).acao, 'permitir', f);
+});
+
+test('documentação: alterar arquivo existente pede aprovação', () => {
+  assert.equal(w('Write', 'docs/README.md', ['docs/README.md']).acao, 'perguntar');
+  assert.match(w('Write', 'docs/README.md', ['docs/README.md']).motivo, /já existe/);
+  assert.equal(w('Edit', 'docs/a.md', ['docs/a.md']).acao, 'perguntar');
+  assert.equal(w('Edit', 'docs/novo.md').acao, 'perguntar'); // Edit nunca é automático
+});
+
+test('documentação: código, segredos e fora do projeto são bloqueados', () => {
+  for (const f of ['src/app.py', 'apps/backend/Program.cs', 'package.json', '.env', 'docs/.env', '.ssh/id_rsa', '../fora.md', 'C:/outra/pasta/a.md', 'docs/../src/a.py', 'docs', 'sub/CLAUDE.md', 'projetos.json'])
+    assert.equal(w('Write', f).acao, 'negar', f);
+  assert.equal(w('Write', '').acao, 'negar');
+  assert.equal(w('Bash', 'docs/a.md').acao, 'negar');
+});
+
+test('explicação de escrita de arquivo', () => {
+  assert.match(descrever('Write', { file_path: 'docs/a.md' }).resumo, /Gravar o arquivo/);
+  assert.equal(descrever('Edit', { file_path: 'docs/a.md' }).nivel, 'altera');
+});

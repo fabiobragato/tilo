@@ -7,7 +7,10 @@
 //   pacotes opcionais (testes, build), comandos lembrados (texto exato que o dono aprovou), bloqueios e "cuidado extra" por texto.
 // Ordem: negar (fábrica + projeto) > produção (fábrica + projeto) > lembrado (texto exato) > liberado (fábrica + pacotes) > perguntar.
 
+import path from 'node:path';
+
 const SHELLS = new Set(['Bash', 'PowerShell']);
+export const FERRAMENTAS_ARQUIVO = ['Write', 'Edit', 'MultiEdit'];
 const META = /[;&|<>`$(){}\\\n\r]/;
 const ARG = String.raw`(?: [\w./:=@~\-]+)*`;
 
@@ -263,10 +266,34 @@ export function descrever(tool, input = {}) {
     const resumo = d.passos.length <= 1 ? (d.passos[0] || 'Comando vazio') : `${d.passos.length} passos em sequência`;
     return { resumo, passos: d.passos, nivel: d.nivel, rotulo: rotuloNivel(d.nivel) };
   }
+  if (FERRAMENTAS_ARQUIVO.includes(tool)) {
+    const f = String(input?.file_path || '');
+    return { resumo: tool === 'Write' ? `Gravar o arquivo “${f}”` : `Alterar o arquivo “${f}”`, passos: [], nivel: 'altera', rotulo: rotuloNivel('altera') };
+  }
   const url = String(input?.url || '');
   if (tool === 'WebFetch') return { resumo: `Abrir a página ${host(url)} na internet`, passos: [`Abrir a página ${url}`], nivel: 'rede', rotulo: rotuloNivel('rede') };
   if (tool === 'WebSearch') return { resumo: `Pesquisar na internet: “${String(input?.query || '').slice(0, 80)}”`, passos: [], nivel: 'rede', rotulo: rotuloNivel('rede') };
   return { resumo: `Usar a ferramenta ${tool}`, passos: [], nivel: 'desconhecido', rotulo: rotuloNivel('desconhecido') };
+}
+
+// ---------- escrita de arquivos (conversas de documentação) ----------
+// Nas conversas de documentação o Claude não tem terminal: só lê e escreve arquivos. Arquivo NOVO em docs/, planning/, pendencias/
+// ou CLAUDE.md é criado direto; alterar arquivo que já existe pede aprovação; qualquer outro lugar (código, segredos, fora do projeto) é bloqueado.
+const PASTAS_DOC = new Set(['docs', 'planning', 'pendencias']);
+const SEGREDO = /(^|[\\/])\.env(?!\.example)|\.ssh|id_(ed25519|rsa|ecdsa)|\.pem$|\.token$|credentials/i;
+export function avaliarArquivo(tool, input = {}, { root, existe = () => false } = {}) {
+  const f = String(input?.file_path ?? input?.path ?? '').trim();
+  const nega = (motivo) => ({ acao: 'negar', risco: 'normal', resumo: `${tool} ${f}`, motivo, origem: 'fábrica' });
+  if (!FERRAMENTAS_ARQUIVO.includes(tool) || !f || !root) return nega('pedido de escrita inválido');
+  const abs = path.resolve(root, f), rel = path.relative(root, abs);
+  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return nega('fora da pasta do projeto');
+  if (SEGREDO.test(rel)) return nega('arquivo de segredos');
+  const partes = rel.split(path.sep), primeiro = partes[0].toLowerCase();
+  const ok = (partes.length === 1 && primeiro === 'claude.md') || (partes.length > 1 && PASTAS_DOC.has(primeiro));
+  if (!ok) return nega('a documentação só pode escrever em docs/, planning/, pendencias/ e CLAUDE.md');
+  const relUnix = partes.join('/');
+  if (tool === 'Write' && !existe(abs)) return { acao: 'permitir', risco: 'normal', resumo: `Write ${relUnix}`, motivo: 'arquivo novo de documentação', origem: 'fábrica' };
+  return { acao: 'perguntar', risco: 'normal', resumo: `${tool} ${relUnix}`, motivo: existe(abs) ? 'este arquivo já existe: será alterado' : 'alteração de arquivo', origem: 'fábrica' };
 }
 
 // ---------- para a tela de Permissões ----------

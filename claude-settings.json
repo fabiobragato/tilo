@@ -2,7 +2,13 @@
   "permissions": {
     "deny": [
       "Read(**/.env)",
-      "Read(**/.env.*)",
+      "Read(**/.env.local)",
+      "Read(**/.env.development)",
+      "Read(**/.env.dev)",
+      "Read(**/.env.test)",
+      "Read(**/.env.staging)",
+      "Read(**/.env.production)",
+      "Read(**/.env.prod)",
       "Read(**/.ssh/**)",
       "Read(**/.claude/**)",
       "Read(**/central-projetos/.token)",

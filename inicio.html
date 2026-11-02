@@ -30,6 +30,7 @@
     <label class="so-novo">Pasta do projeto<input id="n-raiz" required placeholder="E:\estudos\meu-novo-app"><small>Caminho completo de uma pasta que já existe.</small></label>
     <div class="row"><label>Cor<input id="n-cor" type="color" value="#5b5cf0"></label>
       <label class="chk so-novo"><input id="n-base" type="checkbox" checked> Criar estrutura base se faltar<small><code>pendencias/</code>, <code>docs/</code>, <code>planning/</code> e <code>CLAUDE.md</code>. Nunca sobrescreve o que já existe.</small></label></div>
+    <label class="chk so-novo doc"><input id="n-doc" type="checkbox"> Montar a documentação do projeto com o Claude<small>Para projetos que já existem: depois de adicionar, o Claude analisa o código e escreve <code>docs/</code> no mesmo padrão do Datadubis (backend, frontend, negócio, infra, segurança...). Você confirma o início na próxima tela.</small></label>
     <div class="imgs">
       <div class="img"><span class="lbl">Ícone <em>(quadrado)</em></span>
         <label class="drop" id="d-icone"><input id="n-icone" type="file" accept="image/png,image/jpeg,image/webp" hidden><span class="prev sq" id="p-icone"><i class="pi pi-image"></i></span><span class="t">Escolher imagem</span></label><button type="button" class="rm" id="rm-icone" hidden>Remover imagem</button>

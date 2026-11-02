@@ -110,6 +110,7 @@ const NAV = [
   ['sessoes', 'Sessões', 'pi-history'],
   ['chat', 'Conversar com Claude', 'pi-sparkles'],
   ['arquivos', 'Docs e planejamentos', 'pi-folder-open'],
+  ['documentacao', 'Documentação', 'pi-book'],
   ['permissoes', 'Permissões do Claude', 'pi-shield'],
 ];
 function navCount(id) {
@@ -312,7 +313,7 @@ function updateChat() {
   const key = JSON.stringify([c.id, c.messages.length, c.running, c.plan, c.edit, c.exec, c.autoAprovar, c.model]);
   if (S.chatKey === key) return; S.chatKey = key;
   const ta = $('#msg'); if (ta.dataset.cid !== c.id) { ta.value = S.draft[c.id] || ''; ta.dataset.cid = c.id; }
-  $('#chat-log').innerHTML = `<div class="note">${c.plan ? 'Modo plan: o Claude só lê e planeja, não altera arquivos.' : [c.edit && '⚠ Edição de arquivos liberada.', c.exec && '⚠ Comandos liberados: cada um precisa da sua aprovação.'].filter(Boolean).join(' ') || 'Somente leitura'} · modelo ${mname(c.model)}</div>` +
+  $('#chat-log').innerHTML = `<div class="note">${c.plan ? 'Modo plan: o Claude só lê e planeja, não altera arquivos.' : [c.doc && '📄 Modo documentação: o Claude só lê o projeto e cria arquivos em docs/, planning/, pendencias/ e CLAUDE.md. Alterar arquivo existente pede sua aprovação.', c.edit && '⚠ Edição de arquivos liberada.', c.exec && '⚠ Comandos liberados: cada um precisa da sua aprovação.'].filter(Boolean).join(' ') || 'Somente leitura'} · modelo ${mname(c.model)}</div>` +
     c.messages.map((m) => bubble(m)).join('') + (c.running ? '<div class="msg a" id="live"><div class="av"><i class="pi pi-sparkles"></i></div><div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div></div>' : '');
   if (c.running) pollStream(c.id);
   $('#chat-log').scrollTop = 1e9;
@@ -400,6 +401,8 @@ function render() {
   if (q.size && r === 'pendencias') { if (q.get('prio') !== null) S.f.prio = q.get('prio'); if (q.get('stat') !== null) S.f.stat = q.get('stat'); S.f.sec = 0; S.page.pend = 1; history.replaceState(null, '', '#/pendencias'); }
   if (r === 'chat' && q.get('s')) { const id = q.get('s'); S.sel = S.chats.find((c) => c.id === id) ? { kind: 'chat', id } : { kind: 'term', id }; S.chatKey = null; history.replaceState(null, '', '#/chat'); }
   if (r === 'chat') { if (!v.querySelector('.chat-layout')) { v.innerHTML = viewChat(); S.chatKey = null; } if (!S.sel && (S.chats[0])) S.sel = { kind: 'chat', id: S.chats[0].id }; updateChat(); if (S.sel?.kind === 'term' && !S.tx[S.sel.id]) openTerm(S.sel.id); return; }
+  if (r !== 'documentacao' && S.docTimer) { clearInterval(S.docTimer); S.docTimer = null; }
+  if (r === 'documentacao') { if (!v.querySelector('.doc-page')) { v.innerHTML = '<div class="doc-page" id="doc-root"><div class="note">Carregando…</div></div>'; loadDocumentacao(); } return; }
   if (r === 'permissoes') { if (!v.querySelector('.perm-page')) { v.innerHTML = '<div class="perm-page" id="perm-root"><div class="note">Carregando…</div></div>'; loadPermissoes(); } return; }
   v.innerHTML = r === 'pendencias' ? viewPend() : r === 'sessoes' ? viewSess() : r === 'arquivos' ? viewArq() : viewVisao();
   if (S.focus && r === 'pendencias') document.querySelector(`[data-id="${S.focus}"].item`)?.scrollIntoView({ block: 'center' });
@@ -441,6 +444,13 @@ document.addEventListener('click', async (e) => {
         break;
       }
       case 'revogar-sessao': await api('/api/aprovacao/sessao', { id: d.id }); toast('Aprovação automática desligada.'); await loadChats(); S.chatKey = null; updateChat(); break;
+      case 'doc-iniciar': {
+        const modelo = $('#doc-modelo')?.value || 'sonnet';
+        el.disabled = true;
+        try { const c = await api('/api/documentacao/iniciar', { modo: d.modo, modelo }); toast('Documentação iniciada. Acompanhe por aqui.'); location.hash = `#/chat?s=${c.id}`; }
+        catch (x) { toast(x.message); el.disabled = false; }
+        break;
+      }
       case 'perm-pacote': { try { await api('/api/permissoes/pacote', { id: d.id, ligado: el.checked }); toast(el.checked ? 'Pacote ligado.' : 'Pacote desligado.'); } catch (x) { toast(x.message); } await loadPermissoes(); break; }
       case 'perm-esquecer': { const c = S.perm.lembrados[Number(d.i)]?.comando; if (c && confirm('Remover esta permissão? Da próxima vez o Claude vai perguntar de novo.')) { await api('/api/permissoes/esquecer', { comando: c }); toast('Permissão removida.'); await loadPermissoes(); } break; }
       case 'perm-add': {
@@ -474,6 +484,36 @@ document.addEventListener('click', async (e) => {
   } catch (x) { toast(x.message); }
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'perm-cmd') { e.preventDefault(); document.querySelector('[data-act="perm-test"]').click(); } });
+async function loadDocumentacao(silencioso) {
+  try { const g = await api('/api/documentacao'); S.doc = { ...g, modelo: S.doc?.modelo || 'sonnet' }; }
+  catch (x) { if (!silencioso) { const r = $('#doc-root'); if (r) r.innerHTML = `<div class="note">Não consegui carregar: ${esc(x.message)}</div>`; } return; }
+  renderDocumentacao();
+  if (!S.docTimer) S.docTimer = setInterval(() => { if (route() !== 'documentacao') { clearInterval(S.docTimer); S.docTimer = null; return; } loadDocumentacao(true); }, 4000);
+}
+function renderDocumentacao() {
+  const root = $('#doc-root'); if (!root || !S.doc) return;
+  const D = S.doc, rodando = D.job?.rodando;
+  const sel = $('#doc-modelo'); if (sel) D.modelo = sel.value;
+  const ok = (b) => `<i class="pi ${b ? 'pi-check-circle doc-ok' : 'pi-circle doc-no'}"></i>`;
+  const vazio = D.total === 0;
+  root.innerHTML = `<div class="page-head"><div><h1 class="page-title">Documentação do projeto</h1>
+    <p class="page-sub">O Claude lê o código do projeto e monta a documentação oficial (<b>docs/</b>), no mesmo padrão do Datadubis: backend, frontend, regras de negócio, dados, infraestrutura, deploy e segurança, só com as áreas que o projeto realmente tem.</p></div></div>
+  ${rodando ? `<div class="card doc-run"><div class="card-head"><span class="ico"><i class="pi pi-spin pi-spinner"></i></span><h3>Documentação em andamento</h3><a class="link" href="#/chat?s=${D.job.chatId}">Ver a conversa</a></div><div class="card-body"><p class="muted small">Pode levar vários minutos. Os arquivos novos aparecem abaixo conforme são criados. Você pode sair desta tela: ela continua.</p></div></div>` : D.job ? `<div class="card"><div class="card-head"><span class="ico"><i class="pi pi-history"></i></span><h3>Última execução</h3><a class="link" href="#/chat?s=${D.job.chatId}">Ver a conversa e o resumo</a></div></div>` : ''}
+  <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-th-large"></i></span><h3>Como está hoje</h3><span class="muted small">${D.total} documento${D.total === 1 ? '' : 's'} em docs/</span></div><div class="card-body">
+    <div class="doc-grid">${D.areas.map((a) => `<div class="doc-area ${a.arquivos ? 'on' : ''}">${ok(a.arquivos)}<b>${esc(a.nome)}</b><span class="muted small">${a.arquivos ? `${a.arquivos} documento${a.arquivos === 1 ? '' : 's'}` : 'ainda não existe'}</span></div>`).join('')}</div>
+    <ul class="doc-geral"><li>${ok(D.geral.docsReadme)} <b>docs/README.md</b> índice geral</li><li>${ok(D.geral.claudeMd)} <b>CLAUDE.md</b> instruções para o Claude trabalhar no projeto</li><li>${ok(D.geral.planning)} <b>planning/</b> planos ainda não fechados</li><li>${ok(D.geral.pendencias)} <b>pendencias/</b> o seu painel (é daqui que a Central lê as pendências)</li></ul>
+    ${D.pastas.length ? `<p class="muted small">Pastas encontradas no projeto: ${D.pastas.map((p) => `<code>${esc(p)}</code>`).join(' ')}</p>` : '<p class="muted small">A pasta do projeto ainda está vazia. Quando houver código, volte aqui.</p>'}</div></div>
+  <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-sparkles"></i></span><h3>${vazio ? 'Montar a documentação' : 'Montar ou atualizar'}</h3></div><div class="card-body">
+    <ul class="doc-bul"><li><b>O que ele faz:</b> lê o projeto, escreve os documentos em português e confere cada afirmação no código. O que não conseguir confirmar vai para <b>pendencias/</b>, nunca para docs/.</li>
+      <li><b>O que ele não faz:</b> não mexe no código, não usa terminal e não lê senhas (.env, chaves). Só escreve em <code>docs/</code>, <code>planning/</code>, <code>pendencias/</code> e <code>CLAUDE.md</code>.</li>
+      <li><b>Segurança:</b> arquivos <b>novos</b> são criados direto. Se precisar alterar um arquivo que já existe, ele pede a sua aprovação antes.</li>
+      <li><b>Tempo e uso:</b> costuma levar de 5 a 30 minutos, conforme o tamanho do projeto, e usa a sua assinatura do Claude.</li></ul>
+    <div class="doc-acoes"><label>Modelo <select id="doc-modelo" class="sel sm"><option value="sonnet" ${D.modelo === 'sonnet' ? 'selected' : ''}>Sonnet (padrão, mais rápido)</option><option value="opus" ${D.modelo === 'opus' ? 'selected' : ''}>Opus (mais caprichado, usa mais)</option><option value="haiku" ${D.modelo === 'haiku' ? 'selected' : ''}>Haiku (rápido e simples)</option></select></label>
+      <span class="sp"></span>
+      <button class="btn ${vazio ? 'primary' : ''}" data-act="doc-iniciar" data-modo="criar" ${rodando ? 'disabled' : ''}><i class="pi pi-plus"></i> ${vazio ? 'Montar a documentação' : 'Criar o que falta'}</button>
+      ${vazio ? '' : `<button class="btn primary" data-act="doc-iniciar" data-modo="atualizar" ${rodando ? 'disabled' : ''}><i class="pi pi-refresh"></i> Conferir com o código e atualizar</button>`}</div></div></div>
+  ${D.recentes.length ? `<div class="card"><div class="card-head"><span class="ico"><i class="pi pi-file"></i></span><h3>Arquivos mexidos recentemente</h3></div><div class="card-body"><ul class="doc-rec">${D.recentes.map((f) => `<li><a class="link" data-act="file" data-p="${esc(f.path)}">${esc(f.path)}</a><span class="muted small">${ago(f.mtime)}</span></li>`).join('')}</ul></div></div>` : ''}`;
+}
 const NIVEL = { leitura: ['Só consulta', 'lv-ok'], altera: ['Altera arquivos', 'lv-warn'], rede: ['Usa a internet', 'lv-warn'], servidor: ['Mexe em servidor/produção', 'lv-bad'], desconhecido: ['Não reconhecido', 'lv-warn'] };
 const chipNivel = (n) => { const [t, c] = NIVEL[n] || NIVEL.desconhecido; return `<span class="lv ${c}">${t}</span>`; };
 const quando = (iso) => { try { return new Date(iso).toLocaleDateString('pt-BR'); } catch { return ''; } };

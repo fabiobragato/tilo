@@ -8,7 +8,7 @@ import crypto from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { avaliar, compilar, descrever, descreverFabrica, listarPacotes, validarConfig } from './politica.mjs';
+import { avaliar, avaliarArquivo, compilar, descrever, descreverFabrica, FERRAMENTAS_ARQUIVO, listarPacotes, validarConfig } from './politica.mjs';
 import * as projetos from './projetos.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -226,16 +226,17 @@ function startJob(chat, text) {
   const first = !chat.started;
   let prompt = text;
   if (first && chat.contexto) prompt = `Pendência em foco:\n${chat.contexto}\n\nPergunta do dono do projeto:\n${text}`;
-  const canEdit = chat.edit && !chat.plan, canExec = chat.exec && !chat.plan;
+  const doc = !!chat.doc; // conversa de documentação: sem terminal; Write/Edit passam pela política de arquivos (avaliarArquivo)
+  const canEdit = !doc && chat.edit && !chat.plan, canExec = !doc && chat.exec && !chat.plan;
   const tools = canEdit ? 'Read,Grep,Glob,Edit,Write' : 'Read,Grep,Glob';
   // Tudo que não está em --allowedTools cai no aprovador (UI + política). Ferramentas desligadas são bloqueadas de vez.
-  const bloqueadas = [...(canEdit ? [] : ['Edit', 'Write']), ...(canExec ? [] : ['Bash', 'PowerShell'])];
+  const bloqueadas = [...(canEdit || doc ? [] : ['Edit', 'Write']), ...(canExec ? [] : ['Bash', 'PowerShell'])];
   const mcpCfg = path.join(os.tmpdir(), `central-mcp-${chat.id}.json`);
   fs.writeFileSync(mcpCfg, JSON.stringify({ mcpServers: { central: { command: process.execPath, args: [path.join(HERE, 'aprovador-mcp.mjs')], env: { CENTRAL_CHAT_ID: chat.id, CENTRAL_PROJECT: proj.id, CENTRAL_PORT: String(PORT) } } } }));
   const args = ['-p', '--output-format', 'text', '--allowedTools', tools, '--setting-sources', 'project', '--settings', SETTINGS_FILE,
     '--mcp-config', mcpCfg, '--strict-mcp-config', '--permission-prompt-tool', 'mcp__central__approve', '--append-system-prompt', JSON.stringify(SYSTEM)];
   if (bloqueadas.length) args.push('--disallowedTools', bloqueadas.join(','));
-  if (chat.plan) args.push('--permission-mode', 'plan');
+  if (chat.plan && !doc) args.push('--permission-mode', 'plan');
   args.push('--model', MODELS.includes(chat.model) ? chat.model : DEFAULT_MODEL); // validado contra MODELS
   args.push(first ? '--session-id' : '--resume', chat.id);
   // shell:true porque no Windows `claude` é .cmd. Nenhum texto livre do usuário vai em args (vai por stdin).
@@ -369,6 +370,20 @@ async function core(req, res, url) {
     if (req.method === 'GET') {
       switch (url.pathname) {
         case '/api/projetos': return send(res, 200, { projetos: projetos.listar().map(projetoView) });
+        case '/api/documentacao': {
+          const R = P().ROOT, AREAS = [['backend', 'Backend'], ['frontend', 'Frontend'], ['business', 'Regras de negócio'], ['data-platform', 'Plataforma de dados'], ['infra', 'Infraestrutura'], ['deploy', 'Deploy'], ['security', 'Segurança']];
+          const contar = (dir) => { let n = 0; const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const a = path.join(d, e.name); if (e.isDirectory()) walk(a); else if (e.name.endsWith('.md')) n++; } }; try { walk(dir); } catch {} return n; };
+          const tem = (...p) => fs.existsSync(path.join(R, ...p));
+          const RUIDO = new Set(['node_modules', '.git', '.vs', '.idea', '.vscode', 'bin', 'obj', 'dist', 'build', 'out', '.angular', '__pycache__', '.venv', 'venv', 'coverage', '.next']);
+          let pastas = []; try { pastas = fs.readdirSync(R, { withFileTypes: true }).filter((e) => e.isDirectory() && !RUIDO.has(e.name) && !e.name.startsWith('.')).map((e) => e.name).slice(0, 40); } catch {}
+          const docChats = Object.values(loadChats().chats).filter((c) => c.doc).sort((a, b) => b.updated - a.updated);
+          const job = docChats[0] ? { chatId: docChats[0].id, rodando: !!jobs.get(docChats[0].id) && !jobs.get(docChats[0].id).done, titulo: docChats[0].title } : null;
+          return send(res, 200, {
+            areas: AREAS.map(([id, nome]) => ({ id, nome, arquivos: contar(path.join(R, 'docs', id)) })),
+            geral: { docsReadme: tem('docs', 'README.md'), claudeMd: tem('CLAUDE.md'), planning: tem('planning', 'README.md'), pendencias: tem('pendencias', 'README.md') },
+            total: contar(path.join(R, 'docs')), pastas, recentes: listDocs().sort((a, b) => b.mtime - a.mtime).slice(0, 12), job,
+          });
+        }
         case '/api/permissoes': {
           const c = cfgSegura(P().politica);
           return send(res, 200, {
@@ -424,6 +439,19 @@ async function core(req, res, url) {
       case '/api/projetos/editar': {
         try { return send(res, 200, projetos.editar({ id: String(body.id || ''), nome: body.nome, cor: body.cor, descricao: body.descricao, icone: body.icone, logo: body.logo, removerIcone: body.removerIcone === true, removerLogo: body.removerLogo === true })); }
         catch (e) { return send(res, 400, { erro: e.message }); }
+      }
+      case '/api/documentacao/iniciar': { // o Claude lê o projeto e monta/atualiza docs/ no padrão Datadubis (modelos/documentar.md)
+        const modo = body.modo === 'atualizar' ? 'atualizar' : 'criar', modelo = MODELS.includes(body.modelo) ? body.modelo : DEFAULT_MODEL;
+        if (Object.values(loadChats().chats).some((c) => c.doc && jobs.get(c.id) && !jobs.get(c.id).done)) return send(res, 409, { erro: 'já existe uma documentação em andamento neste projeto' });
+        let tpl; try { tpl = fs.readFileSync(path.join(HERE, 'modelos', 'documentar.md'), 'utf8'); } catch { return send(res, 500, { erro: 'modelo de documentação não encontrado' }); }
+        for (const m of ['criar', 'atualizar']) tpl = m === modo ? tpl.replace(`[[${m}]]`, '').replace(`[[/${m}]]`, '') : tpl.replace(new RegExp(`\\[\\[${m}\\]\\][\\s\\S]*?\\[\\[/${m}\\]\\]`), '');
+        const prompt = tpl.split('{{NOME}}').join(P().nome);
+        const titulo = modo === 'criar' ? 'Montar a documentação' : 'Atualizar a documentação';
+        const c = { id: crypto.randomUUID(), title: titulo, itemId: '', contexto: '', model: modelo, plan: false, edit: false, exec: false, doc: true, started: false, created: Date.now(), updated: Date.now(),
+          messages: [{ role: 'user', text: `${titulo} do projeto ${P().nome} no padrão Datadubis.`, ts: Date.now(), model: modelo, plan: false }] };
+        saveChat(c);
+        startJob(c, prompt);
+        return send(res, 200, chatView(c));
       }
       case '/api/permissoes/pacote': { // liga/desliga um pacote opcional (testes, build)
         try { atualizarPoliticaDoProjeto((c) => { const id = String(body.id); c.pacotes = c.pacotes.filter((x) => x !== id); if (body.ligado === true) c.pacotes.push(id); }); return send(res, 200, { ok: true }); }
@@ -519,7 +547,9 @@ async function core(req, res, url) {
         const job = jobs.get(chatId);
         if (!UUID.test(chatId) || !job || job.done || !loadChats().chats[chatId]) return send(res, 409, { erro: 'conversa não está em execução' });
         const tool = str(body.tool_name, 80), input = body.input && typeof body.input === 'object' ? body.input : {};
-        const v = avaliar(tool, input, compilar(P().politica));
+        const v = loadChats().chats[chatId].doc && FERRAMENTAS_ARQUIVO.includes(tool)
+          ? avaliarArquivo(tool, input, { root: P().ROOT, existe: fs.existsSync })
+          : avaliar(tool, input, compilar(P().politica));
         if (v.acao !== 'perguntar') {
           audit(P(), { chat: chatId, tool, resumo: v.resumo.slice(0, 4000), risco: v.risco, decisao: v.acao === 'permitir' ? 'allow' : 'deny', quem: 'política', motivo: v.motivo });
           return send(res, 200, v.acao === 'permitir' ? { behavior: 'allow' } : { behavior: 'deny', message: `Bloqueado pela política do painel: ${v.motivo}. Peça ao dono para rodar manualmente, se for legítimo.` });
@@ -530,7 +560,8 @@ async function core(req, res, url) {
         }
         const ac = new AbortController();
         req.on('close', () => { if (!res.writableEnded) ac.abort(); });
-        return send(res, 200, await askApproval(chatId, tool, input, v, ac.signal));
+        const paraExplicar = FERRAMENTAS_ARQUIVO.includes(tool) ? { ...input, file_path: v.resumo.split(' ').slice(1).join(' ') || input.file_path } : input; // mostra docs/x.md, não o caminho completo
+        return send(res, 200, await askApproval(chatId, tool, paraExplicar, v, ac.signal));
       }
       case '/api/aprovacao/decidir': {
         const a = approvals.get(String(body.id));
