@@ -331,3 +331,7 @@ dialog.adlg[open]{animation:apop .16s ease-out}
 .doc-mod .lv{align-self:flex-start;width:fit-content}
 .doc-mod>span>.lv+span,.doc-mod .muted{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 a.btn{text-decoration:none}
+.pub-aviso{padding:12px 14px;border-radius:10px;background:var(--warning-soft);color:#6b4a0a;font-size:.8rem;line-height:1.55;margin-bottom:12px}
+.pub-item .link{margin-left:auto;font-size:.74rem}
+.bib-col-bloco{margin-top:12px;padding-top:10px;border-top:1px solid var(--border-soft)}.bib-col-cab{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.bib-col-cab .sp{flex:1}
+.bib-linha{flex-direction:row!important;align-items:center!important;justify-content:space-between;gap:10px}.bib-linha>span{min-width:0}
