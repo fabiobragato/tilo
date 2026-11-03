@@ -35,7 +35,7 @@ async function decidir(args) {
     });
     const j = await r.json();
     if (!r.ok) return negar(j.erro || `painel respondeu ${r.status}`);
-    return j.behavior === 'allow' ? { behavior: 'allow', updatedInput: args.input } : negar(j.message || 'negado pelo dono');
+    return j.behavior === 'allow' ? { behavior: 'allow', updatedInput: j.updatedInput || args.input } : negar(j.message || 'negado pelo dono');
   } catch (e) {
     return negar(`aprovador indisponível: ${e.message}`);
   }

@@ -46,6 +46,29 @@ function ago(ms) {
 }
 const age = (ms) => { const a = Date.now() - ms; return a < 120000 ? 'live' : a < 900000 ? 'recent' : ''; };
 function toast(t) { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove('on'), 2600); }
+
+// Modal estilizado (#cdlg) no lugar de confirm()/prompt() nativos. Esc, clique fora e Cancelar cancelam.
+function dialogoSimples({ titulo, texto = '', detalhe = '', ok = 'Confirmar', perigo = false, icone, campo = null }) {
+  const dlg = $('#cdlg');
+  if (dlg.open) { const antigo = dlg.onclose; dlg.close(); antigo?.(); } // cancela o anterior
+  return new Promise((resolve) => {
+    let resultado = campo ? null : false;
+    dlg.classList.toggle('prod', !!perigo);
+    dlg.innerHTML = `<div class="ahd"><span class="aic"><i class="pi ${icone || (perigo ? 'pi-exclamation-triangle' : campo ? 'pi-pencil' : 'pi-question-circle')}"></i></span><div class="att"><b id="cdlg-t">${esc(titulo)}</b></div></div>
+      <div class="abd">${texto ? `<p class="ctexto">${esc(texto)}</p>` : ''}${detalhe ? `<p class="cdetalhe">${esc(detalhe)}</p>` : ''}${campo ? `<input class="input" id="cdlg-campo" type="text" maxlength="200" aria-label="${esc(campo.rotulo || titulo)}" value="${esc(campo.valor || '')}">` : ''}</div>
+      <div class="aft"><span class="sp"></span><button type="button" class="btn" data-c="no">Cancelar</button><button type="button" class="btn primary" data-c="ok">${esc(ok)}</button></div>`;
+    const campoEl = $('#cdlg-campo', dlg);
+    const confirma = () => { resultado = campo ? campoEl.value : true; dlg.close(); };
+    dlg.onclick = (e) => { const b = e.target.closest('[data-c]'); if (b) { if (b.dataset.c === 'ok') confirma(); else dlg.close(); } else if (e.target === dlg) dlg.close(); };
+    if (campoEl) campoEl.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); confirma(); } };
+    dlg.onclose = () => { if (dlg.open) return; dlg.onclick = dlg.onclose = null; resolve(resultado); }; // open: evento atrasado de um diálogo anterior
+    dlg.showModal();
+    (campoEl || $(perigo ? '[data-c="no"]' : '[data-c="ok"]', dlg)).focus();
+    campoEl?.select();
+  });
+}
+const confirmar = (o) => dialogoSimples(o);
+const pedirTexto = (o) => dialogoSimples({ ...o, campo: { valor: o.valor, rotulo: o.rotulo } });
 const PROJ = (location.pathname.match(/^\/p\/([a-z0-9-]+)/) || [])[1] || '';
 const BASE_TITLE = document.title;
 async function api(path, body) {
@@ -72,7 +95,7 @@ const st = (id) => S.state.items[id] || { status: 'aberto' };
 const items = () => S.sections.flatMap((s) => s.items);
 const itemById = (id) => items().find((i) => i.id === id);
 const isOpen = (i) => ['aberto', 'andamento'].includes(st(i.id).status);
-const route = () => (location.hash.replace(/^#\//, '') || 'visao').split('?')[0];
+const route = () => { const r = (location.hash.replace(/^#\//, '') || 'visao').split('?')[0]; return r === 'arquivos' ? 'documentacao' : r; }; // #/arquivos foi mesclada em Documentação
 
 // ---------- componentes ----------
 const badge = (txt, tone = 'neutral', icon = '') => `<span class="badge tone-${tone}">${icon ? `<i class="pi ${icon}"></i>` : ''}${esc(txt)}</span>`;
@@ -109,7 +132,6 @@ const NAV = [
   ['pendencias', 'Pendências', 'pi-list-check'],
   ['sessoes', 'Sessões', 'pi-history'],
   ['chat', 'Conversar com Claude', 'pi-sparkles'],
-  ['arquivos', 'Docs e planejamentos', 'pi-folder-open'],
   ['documentacao', 'Documentação', 'pi-book'],
   ['biblioteca', 'Biblioteca de documentos', 'pi-bookmark'],
   ['permissoes', 'Permissões do Claude', 'pi-shield'],
@@ -154,7 +176,7 @@ function viewVisao() {
     <section class="card"><div class="card-head"><div class="ico tone-danger"><i class="pi pi-exclamation-triangle"></i></div><h3>Próximas ações críticas</h3><a href="#/pendencias?prio=alta">Ver todas</a></div><div class="card-body">
       ${crit.length ? crit.map((i) => `<div class="row-line" data-act="open-item" data-id="${i.id}"><div class="rl-t trunc">${esc(i.title)}</div><span class="rl-s">${esc(short(i.section.replace(/\(.*\)/, ''), 22))}</span></div>`).join('') : empty('pi-check-circle', 'Nenhuma crítica aberta 🎉')}
     </div></section>
-    <section class="card"><div class="card-head"><div class="ico"><i class="pi pi-folder-open"></i></div><h3>Alterados recentemente</h3><a href="#/arquivos">Ver todos</a></div><div class="card-body">
+    <section class="card"><div class="card-head"><div class="ico"><i class="pi pi-folder-open"></i></div><h3>Alterados recentemente</h3><a href="#/documentacao">Ver todos</a></div><div class="card-body">
       ${S.files.slice(0, 6).map((f) => `<div class="row-line" data-act="file" data-p="${esc(f.path)}"><i class="pi pi-file" style="color:var(--faint)"></i><div class="rl-t trunc">${esc(f.path)}</div><span class="rl-s">${ago(f.mtime)}</span></div>`).join('') || empty('pi-folder-open', 'Sem arquivos.')}
     </div></section>
   </div>`;
@@ -226,13 +248,14 @@ function viewSess() {
     <span class="sp"></span>${f.sessTab === 'term' ? `<label class="switch"><input type="checkbox" data-chg="hid" ${f.hid ? 'checked' : ''}> mostrar ocultas</label>` : ''}</div>
   <section class="card">${body}</section>${pager('sess', pg, [6, 10, 20])}`;
 }
-function sessHead(title, t, running, plan, model, itemId) {
+const closedBadge = () => badge('Encerrada', 'neutral', 'pi-check-circle');
+function sessHead(title, t, running, plan, model, itemId, closed) {
   const it = itemId && itemById(itemId);
-  return `<div class="sess-top"><span class="dot ${running ? 'live' : age(t)}"></span><b>${esc(title)}</b>${plan ? planBadge() : ''}${modelBadge(model)}${badge(running ? 'respondendo…' : ago(t), running ? 'success' : 'neutral', 'pi-clock')}${it ? badge(short(it.title, 30), 'primary', 'pi-link') : ''}</div>`;
+  return `<div class="sess-top"><span class="dot ${running ? 'live' : age(t)}"></span><b>${esc(title)}</b>${closed ? closedBadge() : ''}${plan ? planBadge() : ''}${modelBadge(model)}${badge(running ? 'respondendo…' : ago(t), running ? 'success' : 'neutral', 'pi-clock')}${it ? badge(short(it.title, 30), 'primary', 'pi-link') : ''}</div>`;
 }
 function chatSessRow(c) {
   const rev = [...c.messages].reverse(), q = rev.find((m) => m.role === 'user')?.text, a = rev.find((m) => m.role === 'assistant')?.text;
-  return `<div class="sess">${sessHead(c.title, c.updated, c.running, c.plan, c.model, c.itemId)}
+  return `<div class="sess">${sessHead(c.title, c.updated, c.running, c.plan, c.model, c.itemId, c.closed)}
     ${q ? `<p class="q"><b>Você:</b> ${esc(q)}</p>` : ''}${a ? `<p class="q"><b>Claude:</b> ${esc(a)}</p>` : ''}
     <div class="acts"><button class="btn sm primary" data-act="open-sess" data-kind="chat" data-id="${c.id}"><i class="pi pi-comments"></i> Abrir</button>${iconBtn('del-chat', 'pi-trash', 'Apagar conversa', `data-id="${c.id}"`, 'danger')}</div></div>`;
 }
@@ -248,12 +271,14 @@ function termSessRow(x) {
 }
 
 // ---------- arquivos ----------
-function viewArq() {
+// explorador de arquivos (seção da aba Documentação); redesenhado à parte para não perder o estado do restante da tela
+function renderArq() {
+  const root = $('#arq-root'); if (!root) return;
   const area = (p) => p.split('/')[0];
   const f = S.f, list = S.files.filter((x) => !f.area || area(x.path) === f.area);
   const pg = paginate(list, 'arq');
   const AREA = { docs: ['Docs', 'success'], planning: ['Planning', 'warning'], pendencias: ['Pendências', 'primary'] };
-  return `<div class="page-head"><div><h1 class="page-title">Docs e planejamentos</h1><p class="page-sub"><b>docs/</b> = só o que está implantado · <b>planning/</b> = planos para LLMs · <b>pendencias/</b> = este painel.</p></div></div>
+  root.innerHTML = `<div class="page-head"><div><h2 class="page-title" style="font-size:18px">Arquivos</h2><p class="page-sub"><b>docs/</b> = só o que está implantado · <b>planning/</b> = planos para LLMs · <b>pendencias/</b> = este painel.</p></div></div>
   <div class="toolbar"><div class="seg">${[['', 'Todos'], ['docs', 'Docs'], ['planning', 'Planning'], ['pendencias', 'Pendências']].map(([v, l]) => `<button data-act="area" data-v="${v}" class="${f.area === v ? 'on' : ''}">${l}</button>`).join('')}</div><span class="sp"></span><span class="muted small">${list.length} arquivo(s) · mais recentes primeiro</span></div>
   <section class="card tbl-wrap"><table class="tbl"><thead><tr><th>Arquivo</th><th>Área</th><th style="text-align:right">Modificado</th></tr></thead><tbody>
     ${pg.rows.map((x) => { const a = AREA[area(x.path)] || [area(x.path), 'neutral']; return `<tr class="clk" data-act="file" data-p="${esc(x.path)}"><td class="path" title="${esc(x.path)}"><i class="pi pi-file" style="color:var(--faint);margin-right:8px"></i>${esc(x.path)}</td><td>${badge(a[0], a[1])}</td><td class="num">${ago(x.mtime)}</td></tr>`; }).join('')}
@@ -277,6 +302,8 @@ function viewChat() {
         <div class="bar"><div style="display:flex;gap:14px;align-items:center"><label class="switch"><input type="checkbox" id="edit"> permitir editar arquivos</label><label class="switch" title="O Claude pede e você aprova cada comando aqui, na tela"><input type="checkbox" id="exec"> permitir comandos (com aprovação)</label><span class="hint" id="hint"></span></div>
           <div style="display:flex;gap:8px"><button class="btn danger" id="stop" data-act="stop" hidden><i class="pi pi-stop-circle"></i> Parar</button><button class="btn primary" id="send" data-act="send"><i class="pi pi-send"></i> Enviar</button></div></div>
       </div>
+      <div class="composer" id="closed-bar" hidden><span class="muted small">Esta conversa foi encerrada. O histórico fica guardado; reabra para continuar conversando.</span>
+        <div><button class="btn primary" data-act="close-chat" data-v="0"><i class="pi pi-replay"></i> Reabrir conversa</button></div></div>
       <div class="composer" id="ro" hidden><span class="muted small">Histórico somente leitura da sessão do terminal. O painel não consegue continuar a mesma sessão (ela pertence ao seu terminal).</span>
         <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" data-act="continue-term"><i class="pi pi-sparkles"></i> Continuar no painel</button><button class="btn" data-act="resume" data-id="${S.sel?.id || ''}"><i class="pi pi-copy"></i> Copiar claude --resume</button></div></div>
     </section></div>`;
@@ -284,12 +311,15 @@ function viewChat() {
 function updateChat() {
   if (route() !== 'chat' || !$('#cl-body')) return;
   // lista lateral
-  const painel = S.chats.map((c) => `<div class="cl-item ${S.sel?.kind === 'chat' && S.sel.id === c.id ? 'on' : ''}" data-act="open-sess" data-kind="chat" data-id="${c.id}"><span class="dot ${c.running ? 'live' : age(c.updated)}" style="margin-top:5px"></span><div class="trunc" style="flex:1"><div class="t trunc">${esc(c.title)}</div><div class="s">${mname(c.model)}${c.plan ? ' · plan' : ''} · ${ago(c.updated)}</div></div></div>`).join('');
+  const nEnc = S.chats.filter((c) => c.closed).length;
+  const painel = [...S.chats].sort((a, b) => !!a.closed - !!b.closed) // encerradas ao final (sort estável preserva a ordem por data)
+    .filter((c) => !(S.f.hideEnc && c.closed && !(S.sel?.kind === 'chat' && S.sel.id === c.id)))
+    .map((c) => `<div class="cl-item ${S.sel?.kind === 'chat' && S.sel.id === c.id ? 'on' : ''}" ${c.closed ? 'style="opacity:.6"' : ''} data-act="open-sess" data-kind="chat" data-id="${c.id}"><span class="dot ${c.running ? 'live' : age(c.updated)}" style="margin-top:5px"></span><div class="trunc" style="flex:1"><div class="t trunc">${esc(c.title)}</div><div class="s">${c.closed ? 'encerrada · ' : ''}${mname(c.model)}${c.plan ? ' · plan' : ''} · ${ago(c.updated)}</div></div></div>`).join('');
   const term = S.term.filter((x) => !x.oculto).slice(0, 8).map((x) => `<div class="cl-item ${S.sel?.kind === 'term' && S.sel.id === x.id ? 'on' : ''}" data-act="open-sess" data-kind="term" data-id="${x.id}"><span class="dot ${age(x.mtime)}" style="margin-top:5px"></span><div class="trunc" style="flex:1"><div class="t trunc">${esc(x.apelido || x.title || x.primeiro || x.id.slice(0, 8))}</div><div class="s">terminal · ${mname(x.model)}${x.mode === 'plan' ? ' · plan' : ''} · ${ago(x.mtime)}</div></div></div>`).join('');
-  $('#cl-body').innerHTML = `<div class="list-sep" style="margin:-8px -8px 4px">Painel</div>${painel || '<div class="empty small">Sem conversas</div>'}<div class="list-sep" style="margin:8px -8px 4px">Terminal (recentes)</div>${term || '<div class="empty small">Sem sessões</div>'}`;
+  $('#cl-body').innerHTML = `<div class="list-sep" style="margin:-8px -8px 4px">Painel</div>${nEnc ? `<label class="switch small" style="padding:4px 8px"><input type="checkbox" data-chg="hideenc" ${S.f.hideEnc ? 'checked' : ''}> ocultar encerradas (${nEnc})</label>` : ''}${painel || '<div class="empty small">Sem conversas</div>'}<div class="list-sep" style="margin:8px -8px 4px">Terminal (recentes)</div>${term || '<div class="empty small">Sem sessões</div>'}`;
 
   const c = curChat(), t = curTerm(), ro = !!t;
-  $('#composer').hidden = ro || !c; $('#ro').hidden = !ro;
+  $('#composer').hidden = ro || !c || !!c.closed; $('#ro').hidden = !ro; $('#closed-bar').hidden = !c?.closed;
   if (!c && !t) {
     $('#chat-head').innerHTML = '<div class="ttl muted">Nenhuma conversa selecionada</div>'; $('#chat-ctx').innerHTML = '';
     $('#chat-log').innerHTML = empty('pi-sparkles', 'Escolha uma conversa ao lado, crie uma nova ou clique no ícone de conversa numa pendência.'); return;
@@ -303,15 +333,16 @@ function updateChat() {
     if (tr?.messages) $('#chat-log').scrollTop = 1e9; return;
   }
   const it = c.itemId && itemById(c.itemId);
-  $('#chat-head').innerHTML = `<div class="ttl trunc" title="Clique para renomear" data-act="rename-chat" style="cursor:text">${esc(c.title)}</div>
+  $('#chat-head').innerHTML = `<div class="ttl-grp"><div class="ttl trunc" title="Clique para renomear" data-act="rename-chat" style="cursor:text">${esc(c.title)}</div>${iconBtn('rename-chat', 'pi-pencil', 'Renomear conversa')}${c.closed ? closedBadge() : ''}</div>
     <select class="sel sm" data-chg="model" title="Modelo (/model)" aria-label="Modelo">${Object.entries(MODELS).map(([k, v]) => `<option value="${k}" ${c.model === k ? 'selected' : ''}>${v}${k === DEFAULT_MODEL ? ' (padrão)' : ''}</option>`).join('')}</select>
     <button class="btn sm ${c.plan ? 'primary' : ''}" data-act="plan" title="/plan — o Claude só lê e planeja, não altera arquivos"><i class="pi pi-list-check"></i> Plan ${c.plan ? 'ligado' : 'desligado'}</button>
     ${c.autoAprovar ? `<button class="btn sm" data-act="revogar-sessao" data-id="${c.id}" title="Voltar a pedir aprovação para cada comando"><i class="pi pi-lock-open"></i> Aprovação automática ligada · desligar</button>` : ''}
+    ${c.closed ? '' : `<button class="btn sm" data-act="close-chat" data-v="1" title="Encerrar: guarda o histórico e bloqueia novas mensagens (dá para reabrir)"><i class="pi pi-check-circle"></i> Encerrar</button>`}
     ${iconBtn('del-chat', 'pi-trash', 'Apagar conversa', `data-id="${c.id}"`, 'danger')}`;
   $('#chat-ctx').innerHTML = it ? `<div class="ctx"><i class="pi pi-link"></i><div><b>${esc(it.title)}</b><div class="muted">${esc(it.section)}</div></div></div>` : '';
   $('#edit').checked = c.edit && !c.plan; $('#edit').disabled = c.plan; $('#exec').checked = !!c.exec && !c.plan; $('#exec').disabled = c.plan;
   $('#stop').hidden = !c.running; $('#send').disabled = c.running;
-  const key = JSON.stringify([c.id, c.messages.length, c.running, c.plan, c.edit, c.exec, c.autoAprovar, c.model]);
+  const key = JSON.stringify([c.id, c.messages.length, c.running, c.plan, c.edit, c.exec, c.autoAprovar, c.model, c.closed]);
   if (S.chatKey === key) return; S.chatKey = key;
   const ta = $('#msg'); if (ta.dataset.cid !== c.id) { ta.value = S.draft[c.id] || ''; ta.dataset.cid = c.id; }
   $('#chat-log').innerHTML = `<div class="note">${c.plan ? 'Modo plan: o Claude só lê e planeja, não altera arquivos.' : [c.doc && '📄 Modo documentação: o Claude só lê o projeto e cria arquivos em docs/, planning/, pendencias/ e CLAUDE.md. Alterar arquivo existente pede sua aprovação.', c.edit && '⚠ Edição de arquivos liberada.', c.exec && '⚠ Comandos liberados: cada um precisa da sua aprovação.'].filter(Boolean).join(' ') || 'Somente leitura'} · modelo ${mname(c.model)}</div>` +
@@ -330,6 +361,21 @@ function renderApprovals(list) {
   const a = list[0], prod = a.risco === 'producao', ex = a.explicacao || { resumo: a.resumo, passos: [], nivel: 'desconhecido' };
   if (dlg.dataset.id === a.id && dlg.open) { const c = $('#adlg-n'); if (c) c.textContent = n > 1 ? `1 de ${n} pedidos` : ''; return; }
   dlg.dataset.id = a.id;
+  if (a.tipo === 'pergunta') { // perguntas do Claude (modo plan): opções selecionáveis + sempre "Outro"
+    dlg.className = 'adlg'; dlg._perguntas = a.perguntas;
+    dlg.innerHTML = `<div class="ahd"><span class="aic"><i class="pi pi-question-circle"></i></span>
+        <div class="att"><b id="adlg-t">O Claude precisa de uma decisão sua</b><span class="asub">Escolha uma opção ou escreva a sua.<span id="adlg-n" class="acount">${n > 1 ? `1 de ${n} pedidos` : ''}</span></span></div></div>
+      <div class="abd aperg">${a.perguntas.map((q, i) => `<fieldset class="aq" data-q="${i}"><legend>${q.header ? `<span class="chip">${esc(q.header)}</span> ` : ''}${esc(q.question)}</legend>
+        ${q.options.map((o) => `<label class="aopt"><input type="${q.multiSelect ? 'checkbox' : 'radio'}" name="aq${i}" value="${esc(o.label)}"><span><b>${esc(o.label)}</b>${o.description ? `<em>${esc(o.description)}</em>` : ''}</span></label>`).join('')}
+        <label class="aopt"><input type="${q.multiSelect ? 'checkbox' : 'radio'}" name="aq${i}" value="" data-outro="1"><span><b>Outro</b><em>Escreva o que você quer</em></span></label>
+        <input type="text" class="aoutro" data-outro-txt="${i}" maxlength="1000" placeholder="Escreva aqui o que você quer…" aria-label="Outro: escreva o que você quer" hidden></fieldset>`).join('')}</div>
+      <div class="aft"><button class="btn" data-act="negar" data-id="${a.id}" title="O Claude segue com a melhor suposição"><i class="pi pi-times"></i> Dispensar</button><span class="sp"></span>
+        <button class="btn primary" data-act="responder" data-id="${a.id}"><i class="pi pi-send"></i> Enviar respostas</button></div>`;
+    dlg.onchange = (e) => { const f = e.target.closest('.aq'); if (!f) return; const o = f.querySelector('[data-outro]'), t = f.querySelector('.aoutro'); t.hidden = !o.checked; if (o.checked) t.focus(); };
+    if (!dlg.open) dlg.showModal();
+    return;
+  }
+  dlg.onchange = null;
   dlg.className = 'adlg' + (prod ? ' prod' : '');
   dlg.innerHTML = `<div class="ahd"><span class="aic"><i class="pi ${prod ? 'pi-exclamation-triangle' : 'pi-shield'}"></i></span>
       <div class="att"><b id="adlg-t">${prod ? 'Atenção: este comando mexe com produção ou internet' : 'O Claude quer fazer isto'}</b>
@@ -403,10 +449,10 @@ function render() {
   if (r === 'chat' && q.get('s')) { const id = q.get('s'); S.sel = S.chats.find((c) => c.id === id) ? { kind: 'chat', id } : { kind: 'term', id }; S.chatKey = null; history.replaceState(null, '', '#/chat'); }
   if (r === 'chat') { if (!v.querySelector('.chat-layout')) { v.innerHTML = viewChat(); S.chatKey = null; } if (!S.sel && (S.chats[0])) S.sel = { kind: 'chat', id: S.chats[0].id }; updateChat(); if (S.sel?.kind === 'term' && !S.tx[S.sel.id]) openTerm(S.sel.id); return; }
   if (r !== 'documentacao' && S.docTimer) { clearInterval(S.docTimer); S.docTimer = null; }
-  if (r === 'documentacao') { if (!v.querySelector('.doc-page')) { v.innerHTML = '<div class="doc-page" id="doc-root"><div class="note">Carregando…</div></div>'; loadDocumentacao(); } return; }
+  if (r === 'documentacao') { if (!v.querySelector('.doc-page')) { v.innerHTML = '<div class="doc-page" id="doc-root"><div class="note">Carregando…</div></div>'; loadDocumentacao(); } else renderArq(); return; }
   if (r === 'biblioteca') { if (!v.querySelector('.bib-page')) { v.innerHTML = '<div class="bib-page" id="bib-root"><div class="note">Carregando…</div></div>'; loadBiblioteca(); } return; }
   if (r === 'permissoes') { if (!v.querySelector('.perm-page')) { v.innerHTML = '<div class="perm-page" id="perm-root"><div class="note">Carregando…</div></div>'; loadPermissoes(); } return; }
-  v.innerHTML = r === 'pendencias' ? viewPend() : r === 'sessoes' ? viewSess() : r === 'arquivos' ? viewArq() : viewVisao();
+  v.innerHTML = r === 'pendencias' ? viewPend() : r === 'sessoes' ? viewSess() : viewVisao();
   if (S.focus && r === 'pendencias') document.querySelector(`[data-id="${S.focus}"].item`)?.scrollIntoView({ block: 'center' });
 }
 window.addEventListener('hashchange', () => { S.focus = null; render(); });
@@ -434,13 +480,33 @@ document.addEventListener('click', async (e) => {
         break;
       }
       case 'new-chat': await newChat(); break;
-      case 'del-chat': if (confirm('Apagar esta conversa?')) { await api('/api/chat/apagar', { id: d.id || curChat()?.id }); if (S.sel?.id === (d.id || S.sel?.id)) S.sel = null; await loadChats(); render(); } break;
-      case 'rename-chat': { const c = curChat(); const v = c && prompt('Nome da conversa:', c.title); if (v) cfg({ title: v }); break; }
+      case 'del-chat': if (await confirmar({ titulo: 'Apagar esta conversa?', texto: 'O histórico dela será removido e não dá para desfazer.', ok: 'Apagar', perigo: true })) { await api('/api/chat/apagar', { id: d.id || curChat()?.id }); if (S.sel?.id === (d.id || S.sel?.id)) S.sel = null; await loadChats(); render(); } break;
+      case 'rename-chat': { const c = curChat(); const v = c && await pedirTexto({ titulo: 'Renomear conversa', rotulo: 'Nome da conversa', valor: c.title, ok: 'Salvar' }); if (v?.trim()) cfg({ title: v.trim() }); break; }
+      case 'close-chat': {
+        const c = curChat(); if (!c) break;
+        if (d.v === '1' && !(await confirmar({ titulo: 'Encerrar esta conversa?', texto: 'O histórico fica guardado, mas não dá mais para enviar mensagens. Você pode reabrir depois.', ok: 'Encerrar', icone: 'pi-check-circle' }))) break;
+        await cfg({ closed: d.v === '1' }); toast(d.v === '1' ? 'Conversa encerrada' : 'Conversa reaberta'); break;
+      }
       case 'plan': cfg({ plan: !curChat().plan }); break;
       case 'send': send(); break;
       case 'aprovar': case 'negar': case 'aprovar-sessao': case 'aprovar-lembrar': {
         $('#adlg').querySelectorAll('button').forEach((b) => { b.disabled = true; });
         try { await api('/api/aprovacao/decidir', { id: d.id, permitir: act !== 'negar', sessao: act === 'aprovar-sessao', lembrar: act === 'aprovar-lembrar' }); if (act === 'aprovar-sessao') toast('Comandos comuns aprovados até o fim desta conversa. Produção continua pedindo.'); if (act === 'aprovar-lembrar') toast('Aprovado e lembrado. Você pode rever em Permissões.'); }
+        catch (x) { toast(x.message); }
+        $('#adlg').close(); $('#adlg').dataset.id = ''; loadChats();
+        break;
+      }
+      case 'responder': {
+        const respostas = {}; let falta = false;
+        $('#adlg').querySelectorAll('.aq').forEach((f) => {
+          const vals = [];
+          f.querySelectorAll('input[type=radio],input[type=checkbox]').forEach((i) => { if (!i.checked) return; const v = i.dataset.outro ? f.querySelector('.aoutro').value.trim() : i.value; if (v) vals.push(v); });
+          respostas[f.dataset.q] = vals.join(', '); if (!vals.length) falta = true;
+        });
+        if (falta) { toast('Responda todas as perguntas (em “Outro”, escreva o texto).'); break; }
+        const porTexto = Object.fromEntries(($('#adlg')._perguntas || []).map((p, i) => [p.question, respostas[i]]));
+        $('#adlg').querySelectorAll('button').forEach((b) => { b.disabled = true; });
+        try { await api('/api/aprovacao/decidir', { id: d.id, permitir: true, respostas: porTexto }); }
         catch (x) { toast(x.message); }
         $('#adlg').close(); $('#adlg').dataset.id = ''; loadChats();
         break;
@@ -492,8 +558,8 @@ document.addEventListener('click', async (e) => {
       }
       case 'rasc-ok': { try { await api('/api/biblioteca/rascunho/aceitar', { lote: d.lote, itens: [d.item] }); toast('Aceito: já está na biblioteca.'); await loadBiblioteca(); } catch (x) { toast(x.message); } break; }
       case 'rasc-no': { try { await api('/api/biblioteca/rascunho/descartar', { lote: d.lote, itens: [d.item] }); await loadBiblioteca(); } catch (x) { toast(x.message); } break; }
-      case 'rasc-ok-todos': { if (confirm(`Aceitar ${d.n} rascunhos? Eles substituem as versões atuais na biblioteca.`)) { try { const r = await api('/api/biblioteca/rascunho/aceitar', { lote: d.lote, itens: 'todos' }); toast(`${r.aceitos.length} documentos atualizados na biblioteca.`); await loadBiblioteca(); } catch (x) { toast(x.message); } } break; }
-      case 'rasc-no-todos': { if (confirm('Descartar todos os rascunhos deste lote? (Se o Claude ainda estiver trabalhando, os que faltam não serão aproveitados.)')) { try { await api('/api/biblioteca/rascunho/descartar', { lote: d.lote, itens: 'todos' }); await loadBiblioteca(); } catch (x) { toast(x.message); } } break; }
+      case 'rasc-ok-todos': { if (await confirmar({ titulo: `Aceitar ${d.n} rascunhos?`, texto: 'Eles substituem as versões atuais na biblioteca.', ok: 'Aceitar todos' })) { try { const r = await api('/api/biblioteca/rascunho/aceitar', { lote: d.lote, itens: 'todos' }); toast(`${r.aceitos.length} documentos atualizados na biblioteca.`); await loadBiblioteca(); } catch (x) { toast(x.message); } } break; }
+      case 'rasc-no-todos': { if (await confirmar({ titulo: 'Descartar todos os rascunhos deste lote?', texto: 'Se o Claude ainda estiver trabalhando, os que faltam não serão aproveitados.', ok: 'Descartar', perigo: true })) { try { await api('/api/biblioteca/rascunho/descartar', { lote: d.lote, itens: 'todos' }); await loadBiblioteca(); } catch (x) { toast(x.message); } } break; }
       case 'bib-pub': abrirPublicar(); break;
       case 'bib-pub-ok': {
         const arquivos = [...document.querySelectorAll('.pub-doc:checked')].map((x) => x.value);
@@ -502,17 +568,17 @@ document.addEventListener('click', async (e) => {
         catch (x) { toast(x.message); el.disabled = false; }
         break;
       }
-      case 'bib-doc-del': { if (confirm(`Remover “${d.nome}” da biblioteca? O documento original no projeto de origem não é afetado.`)) { try { await api('/api/biblioteca/remover', { id: d.id }); S.bib.sel.delete(d.id); toast('Documento removido da biblioteca.'); await loadBiblioteca(); } catch (x) { toast(x.message); } } break; }
-      case 'bib-col-del': { if (confirm(`Remover “${d.nome}” da biblioteca? Os projetos que já usaram esses documentos não mudam.`)) { try { await api('/api/biblioteca/remover', { colecao: d.id }); toast('Removido da biblioteca.'); await loadBiblioteca(); } catch (x) { toast(x.message); } } break; }
+      case 'bib-doc-del': { if (await confirmar({ titulo: 'Remover da biblioteca?', detalhe: d.nome, texto: 'O documento original no projeto de origem não é afetado.', ok: 'Remover', perigo: true })) { try { await api('/api/biblioteca/remover', { id: d.id }); S.bib.sel.delete(d.id); toast('Documento removido da biblioteca.'); await loadBiblioteca(); } catch (x) { toast(x.message); } } break; }
+      case 'bib-col-del': { if (await confirmar({ titulo: 'Remover da biblioteca?', detalhe: d.nome, texto: 'Os projetos que já usaram esses documentos não mudam.', ok: 'Remover', perigo: true })) { try { await api('/api/biblioteca/remover', { colecao: d.id }); toast('Removido da biblioteca.'); await loadBiblioteca(); } catch (x) { toast(x.message); } } break; }
       case 'perm-pacote': { try { await api('/api/permissoes/pacote', { id: d.id, ligado: el.checked }); toast(el.checked ? 'Pacote ligado.' : 'Pacote desligado.'); } catch (x) { toast(x.message); } await loadPermissoes(); break; }
-      case 'perm-esquecer': { const c = S.perm.lembrados[Number(d.i)]?.comando; if (c && confirm('Remover esta permissão? Da próxima vez o Claude vai perguntar de novo.')) { await api('/api/permissoes/esquecer', { comando: c }); toast('Permissão removida.'); await loadPermissoes(); } break; }
+      case 'perm-esquecer': { const c = S.perm.lembrados[Number(d.i)]?.comando; if (c && await confirmar({ titulo: 'Remover esta permissão?', texto: 'Da próxima vez o Claude vai perguntar de novo.', ok: 'Remover', perigo: true })) { await api('/api/permissoes/esquecer', { comando: c }); toast('Permissão removida.'); await loadPermissoes(); } break; }
       case 'perm-add': {
         const texto = $(`#perm-${d.tipo}-texto`).value.trim(), motivo = $(`#perm-${d.tipo}-motivo`).value.trim();
         if (!texto) { toast('Escreva o texto a procurar nos comandos.'); break; }
         try { await api('/api/permissoes/regra', { tipo: d.tipo, texto, motivo }); S.perm.erro = ''; toast('Regra adicionada.'); } catch (x) { S.perm.erro = x.message; }
         await loadPermissoes(); break;
       }
-      case 'perm-del': { const r = S.perm[d.tipo === 'producao' ? 'producao' : 'bloqueios'][Number(d.i)]; if (r) { await api('/api/permissoes/regra/remover', { tipo: d.tipo, texto: r.texto }); await loadPermissoes(); } break; }
+      case 'perm-del': { const r = S.perm[d.tipo === 'producao' ? 'producao' : 'bloqueios'][Number(d.i)]; if (r && await confirmar({ titulo: 'Remover esta regra?', detalhe: `Comandos que contenham “${r.texto}”`, ok: 'Remover', perigo: true })) { await api('/api/permissoes/regra/remover', { tipo: d.tipo, texto: r.texto }); await loadPermissoes(); } break; }
       case 'perm-test': {
         const c = $('#perm-cmd').value.trim(); if (!c) break;
         try { S.perm.teste = { cmd: c, ...(await api('/api/permissoes/testar', { comando: c })) }; } catch (x) { S.perm.teste = { cmd: c, erro: x.message }; }
@@ -522,10 +588,10 @@ document.addEventListener('click', async (e) => {
       case 'quick': { const ta = $('#msg'); if (ta) send(d.p); break; }
       case 'status': break;
       case 'remove': {
-        const i = itemById(d.id); if (!confirm('Apagar esta linha de pendencias/README.md?\n\n' + i.title)) break;
+        const i = itemById(d.id); if (!(await confirmar({ titulo: 'Apagar esta linha do pendencias/README.md?', detalhe: i.title, texto: 'Isso não dá para desfazer pelo Tilo.', ok: 'Apagar', perigo: true }))) break;
         await api('/api/remover', { line: i.line, raw: i.raw }); await loadPend(); render(); toast('Removido do README'); break;
       }
-      case 'rename': { const x = S.term.find((s) => s.id === d.id); const v = prompt('Apelido da sessão:', x.apelido || x.title || ''); if (v !== null) { await api('/api/sessoes/meta', { id: d.id, apelido: v }); await loadSess(); render(); } break; }
+      case 'rename': { const x = S.term.find((s) => s.id === d.id); const v = await pedirTexto({ titulo: 'Apelido da sessão', rotulo: 'Apelido', valor: x.apelido || x.title || '', ok: 'Salvar' }); if (v !== null) { await api('/api/sessoes/meta', { id: d.id, apelido: v }); await loadSess(); render(); } break; }
       case 'hide': { const x = S.term.find((s) => s.id === d.id); await api('/api/sessoes/meta', { id: d.id, oculto: !x.oculto }); await loadSess(); render(); break; }
       case 'resume': await navigator.clipboard.writeText(`claude --resume ${d.id || S.sel?.id}`); toast('Comando copiado'); break;
       case 'continue-term': {
@@ -566,6 +632,7 @@ function renderDocumentacao() {
   <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-th-large"></i></span><h3>Como está hoje</h3><span class="muted small">${D.total} documento${D.total === 1 ? '' : 's'} em docs/</span></div><div class="card-body">
     <div class="doc-grid">${D.areas.map((a) => `<div class="doc-area ${a.arquivos ? 'on' : ''}">${ok(a.arquivos)}<b>${esc(a.nome)}</b><span class="muted small">${a.arquivos ? `${a.arquivos} documento${a.arquivos === 1 ? '' : 's'}` : 'ainda não existe'}</span></div>`).join('')}</div>
     <ul class="doc-geral"><li>${ok(D.geral.docsReadme)} <b>docs/README.md</b> índice geral</li><li>${ok(D.geral.claudeMd)} <b>CLAUDE.md</b> instruções para o Claude trabalhar no projeto</li><li>${ok(D.geral.planning)} <b>planning/</b> planos ainda não fechados</li><li>${ok(D.geral.pendencias)} <b>pendencias/</b> o seu painel (é daqui que o Tilo lê as pendências)</li></ul></div></div>
+  <div id="arq-root"></div>
   <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-sparkles"></i></span><h3>${vazio ? 'Montar a documentação' : 'Montar ou atualizar'}</h3></div><div class="card-body">
     <p class="small">${vazio ? 'O Claude lê o projeto, escreve os documentos em português e confere cada afirmação no código.' : '<b>Criar o que falta</b> escreve só o que ainda não existe. <b>Conferir com o código</b> compara cada documento com o código e corrige o que está desatualizado.'} O que ele não conseguir confirmar vai para <b>pendencias/</b>.</p>
     <details class="doc-det"><summary>O que ele pode e não pode fazer</summary><ul class="doc-bul">
@@ -576,8 +643,8 @@ function renderDocumentacao() {
       <span class="sp"></span>
       <button class="btn ${vazio ? 'primary' : ''}" data-act="doc-iniciar" data-modo="criar" ${rodando ? 'disabled' : ''}><i class="pi pi-plus"></i> ${vazio ? 'Montar a documentação' : 'Criar o que falta'}</button>
       ${vazio ? '' : `<button class="btn primary" data-act="doc-iniciar" data-modo="atualizar" ${rodando ? 'disabled' : ''}><i class="pi pi-refresh"></i> Conferir com o código e atualizar</button>`}</div></div></div>
-  <a class="card doc-lib" href="#/biblioteca"><span class="ico"><i class="pi pi-bookmark"></i></span><div><b>Quer um ponto de partida?</b><span class="muted small">Na <b>Biblioteca de documentos</b> você busca documentos prontos por área (backend, frontend, infra, segurança...), vê o conteúdo e anexa a este projeto.</span></div><i class="pi pi-angle-right"></i></a>
-  ${D.recentes.length ? `<div class="card"><div class="card-head"><span class="ico"><i class="pi pi-file"></i></span><h3>Arquivos mexidos recentemente</h3></div><div class="card-body"><ul class="doc-rec">${D.recentes.slice(0, 8).map((f) => `<li><a class="link" data-act="file" data-p="${esc(f.path)}">${esc(f.path)}</a><span class="muted small">${ago(f.mtime)}</span></li>`).join('')}</ul></div></div>` : ''}`;
+  <a class="card doc-lib" href="#/biblioteca"><span class="ico"><i class="pi pi-bookmark"></i></span><div><b>Quer um ponto de partida?</b><span class="muted small">Na <b>Biblioteca de documentos</b> você busca documentos prontos por área (backend, frontend, infra, segurança...), vê o conteúdo e anexa a este projeto.</span></div><i class="pi pi-angle-right"></i></a>`;
+  renderArq();
 }
 
 // ---------- Biblioteca de documentos ----------
@@ -716,6 +783,7 @@ document.addEventListener('change', async (e) => {
       case 'fprio': S.f.prio = el.value; S.page.pend = 1; render(); break;
       case 'fstat': S.f.stat = el.value; S.page.pend = 1; render(); break;
       case 'hid': S.f.hid = el.checked; S.page.sess = 1; render(); break;
+      case 'hideenc': S.f.hideEnc = el.checked; updateChat(); break;
       case 'status': await api('/api/estado', { id: d.id, status: el.value, nota: st(d.id).nota || '' }); await loadPend(); render(); break;
       case 'link': await api('/api/sessoes/meta', { id: d.id, itemId: el.value }); await loadSess(); render(); break;
       case 'model': cfg({ model: el.value }); break;
@@ -736,6 +804,17 @@ $('#gsearch').addEventListener('input', (e) => { if (!e.target.value && S.f.q) {
 $('#toggle').addEventListener('click', () => { S.collapsed = !S.collapsed; ls.set('tilo.sidebar-collapsed', S.collapsed ? '1' : '0'); renderNav(); });
 $('#dx').addEventListener('click', () => $('#dlg').close());
 $('#reload').addEventListener('click', () => refresh(true));
+$('#restart').addEventListener('click', async () => {
+  const rodando = (S.chats || []).filter((c) => c.running).length;
+  if (!(await confirmar({ titulo: 'Reiniciar o servidor?', texto: `O Tilo fica fora do ar por alguns segundos e a página recarrega sozinha. Aprovações pendentes são negadas.${rodando ? ` ${rodando === 1 ? 'Há 1 conversa' : `Há ${rodando} conversas`} do Claude respondendo agora; ${rodando === 1 ? 'ela será interrompida' : 'elas serão interrompidas'}.` : ''}`, ok: 'Reiniciar', perigo: true }))) return;
+  try { await api('/api/reiniciar', {}); } catch (x) { toast(x.message); return; }
+  toast('Reiniciando o servidor…');
+  for (let i = 0; i < 40; i++) { // espera o servidor voltar (até ~20 s) e recarrega
+    await new Promise((r) => setTimeout(r, 500));
+    try { if ((await fetch(location.pathname, { cache: 'no-store' })).ok) return location.reload(); } catch {}
+  }
+  toast('O servidor não voltou a tempo. Veja tilo.err.log ou abra pelo atalho.');
+});
 async function openFile(p) {
   try { const f = await api('/api/file?p=' + encodeURIComponent(p)); $('#dt').textContent = f.path; $('#dc').innerHTML = md(f.content); $('#dlg').showModal(); } catch (x) { toast(x.message); }
 }
@@ -756,7 +835,7 @@ async function refresh(force) {
     const next = {
       pend: JSON.stringify([p.sections.map((x) => x.items.map((i) => i.id + i.raw)), p.state]),
       sess: JSON.stringify(s.terminal.map((x) => [x.id, x.mtime, x.apelido, x.itemId, x.oculto])),
-      chats: JSON.stringify(c.chats.map((x) => [x.id, x.updated, x.running, x.title, x.model, x.plan, x.edit, x.messages.length])),
+      chats: JSON.stringify(c.chats.map((x) => [x.id, x.updated, x.running, x.title, x.model, x.plan, x.edit, x.closed, x.messages.length])),
       files: JSON.stringify(f.files.map((x) => x.path + x.mtime)),
     };
     const changed = force || Object.keys(next).some((k) => sigs[k] !== next[k]);

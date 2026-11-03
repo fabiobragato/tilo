@@ -121,6 +121,8 @@ function userText(content) {
   return t.replace(/<\/?pasted_content[^>]*>/g, '').trim();
 }
 const short = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+// título sugerido a partir da 1ª mensagem: primeira linha não vazia, sem espaços repetidos, até 60 caracteres
+const tituloDaMensagem = (t) => short(String(t).split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).find(Boolean) || '', 60);
 function sessionInfo(file) {
   const st = fs.statSync(file);
   const key = `${st.mtimeMs}:${st.size}`;
@@ -213,12 +215,27 @@ const approvals = new Map(); // id -> { id, chatId, tool, resumo, risco, motivo,
 function audit(proj, o) { try { fs.appendFileSync(proj.AUDIT, JSON.stringify({ ts: new Date().toISOString(), ...o }) + '\n'); } catch {} } // dados/<projeto>/auditoria.jsonl
 const autoSessao = new Set(); // chats com "aprovar todos da sessão" (só em memória; some ao reiniciar o servidor). Produção e política 'negar' nunca entram.
 const pendingOf = (chatId) => [...approvals.values()].filter((a) => a.chatId === chatId);
-const approvalView = (a) => ({ id: a.id, tool: a.tool, resumo: a.resumo, risco: a.risco, motivo: a.motivo, criado: a.criado, explicacao: a.explicacao, lembravel: a.lembravel });
-function settle(a, behavior, message, quem) {
+const approvalView = (a) => ({ id: a.id, tool: a.tool, resumo: a.resumo, risco: a.risco, motivo: a.motivo, criado: a.criado, explicacao: a.explicacao, lembravel: a.lembravel, tipo: a.tipo, perguntas: a.perguntas });
+function settle(a, behavior, message, quem, extra) {
   if (!approvals.delete(a.id)) return;
   clearTimeout(a.timer);
   audit(a.proj, { chat: a.chatId, tool: a.tool, resumo: a.resumo, risco: a.risco, decisao: behavior, quem, motivo: message || '' });
-  a.resolve(behavior === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: message || 'Negado pelo dono.' });
+  a.resolve(behavior === 'allow' ? { behavior: 'allow', ...extra } : { behavior: 'deny', message: message || 'Negado pelo dono.' });
+}
+// Perguntas do Claude (ferramenta AskUserQuestion, comum no modo plan): o dono escolhe as opções na UI; as respostas voltam ao Claude em updatedInput.answers.
+function normalizarPerguntas(input) {
+  const qs = Array.isArray(input?.questions) ? input.questions.slice(0, 4) : [];
+  return qs.map((q) => ({ question: str(q?.question, 500), header: str(q?.header, 40), multiSelect: q?.multiSelect === true,
+    options: (Array.isArray(q?.options) ? q.options.slice(0, 6) : []).map((o) => ({ label: str(o?.label, 120), description: str(o?.description, 400) })).filter((o) => o.label) })).filter((q) => q.question);
+}
+function askPergunta(chatId, input, perguntas, signal) {
+  return new Promise((resolve) => {
+    const a = { id: crypto.randomUUID(), proj: P(), chatId, tool: 'AskUserQuestion', resumo: perguntas.map((q) => q.question).join(' | ').slice(0, 4000), risco: 'normal', motivo: 'O Claude fez uma pergunta',
+      criado: Date.now(), resolve, tipo: 'pergunta', perguntas, input, lembravel: false };
+    a.timer = setTimeout(() => settle(a, 'deny', 'Sem resposta em 5 minutos; siga com a melhor suposição e avise o dono.', 'timeout'), APPROVAL_TIMEOUT);
+    approvals.set(a.id, a);
+    signal?.addEventListener('abort', () => settle(a, 'deny', 'Pedido cancelado.', 'sistema'));
+  });
 }
 function denyAll(chatId, message) { for (const a of pendingOf(chatId)) settle(a, 'deny', message, 'sistema'); }
 function askApproval(chatId, tool, input, v, signal) {
@@ -626,7 +643,7 @@ async function core(req, res, url) {
         const id = crypto.randomUUID();
         const c = {
           id, title: str(body.title, 80) || 'Nova conversa', itemId: str(body.itemId, 12), contexto: str(body.contexto, 4000),
-          model: MODELS.includes(body.model) ? body.model : DEFAULT_MODEL, plan: !!body.plan, edit: false, exec: false, started: false,
+          model: MODELS.includes(body.model) ? body.model : DEFAULT_MODEL, plan: !!body.plan, edit: true, exec: true, started: false,
           created: Date.now(), updated: Date.now(), messages: [],
         };
         saveChat(c);
@@ -640,6 +657,15 @@ async function core(req, res, url) {
         if (body.edit !== undefined) c.edit = !!body.edit;
         if (body.exec !== undefined) { c.exec = !!body.exec; if (!c.exec) autoSessao.delete(c.id); }
         if (body.title !== undefined) c.title = str(body.title, 80) || c.title;
+        if (body.closed !== undefined) {
+          c.closed = !!body.closed;
+          if (c.closed) { // encerrar interrompe a resposta em andamento e as aprovações pendentes
+            const j = jobs.get(c.id);
+            denyAll(c.id, 'Conversa encerrada.');
+            autoSessao.delete(c.id);
+            if (j && !j.done) j.child.kill();
+          }
+        }
         c.updated = Date.now();
         saveChat(c);
         return send(res, 200, chatView(c));
@@ -648,7 +674,9 @@ async function core(req, res, url) {
         const c = loadChats().chats[body.id];
         const text = str(body.text, 20_000).trim();
         if (!c || !text) return send(res, 400, { erro: 'conversa/texto' });
+        if (c.closed) return send(res, 409, { erro: 'esta conversa está encerrada; reabra para continuar' });
         if (jobs.get(c.id) && !jobs.get(c.id).done) return send(res, 409, { erro: 'esta conversa já está respondendo' });
+        if (c.title === 'Nova conversa' && !c.messages.some((m) => m.role === 'user')) c.title = tituloDaMensagem(text) || c.title; // nome sugerido: início da 1ª mensagem
         c.messages.push({ role: 'user', text, ts: Date.now(), model: MODELS.includes(c.model) ? c.model : DEFAULT_MODEL, plan: c.plan });
         c.updated = Date.now();
         saveChat(c);
@@ -660,6 +688,13 @@ async function core(req, res, url) {
         const job = jobs.get(chatId);
         if (!UUID.test(chatId) || !job || job.done || !loadChats().chats[chatId]) return send(res, 409, { erro: 'conversa não está em execução' });
         const tool = str(body.tool_name, 80), input = body.input && typeof body.input === 'object' ? body.input : {};
+        if (tool === 'AskUserQuestion') {
+          const perguntas = normalizarPerguntas(input);
+          if (!perguntas.length) return send(res, 200, { behavior: 'deny', message: 'Pergunta inválida; siga com a melhor suposição e avise o dono.' });
+          const ac = new AbortController();
+          req.on('close', () => { if (!res.writableEnded) ac.abort(); });
+          return send(res, 200, await askPergunta(chatId, input, perguntas, ac.signal));
+        }
         const v = loadChats().chats[chatId].doc && FERRAMENTAS_ARQUIVO.includes(tool)
           ? (loadChats().chats[chatId].gen ? avaliarArquivo(tool, input, { root: loadChats().chats[chatId].gen.dir, existe: fs.existsSync, modo: 'gen' }) : avaliarArquivo(tool, input, { root: P().ROOT, existe: fs.existsSync }))
           : avaliar(tool, input, compilar(P().politica));
@@ -679,12 +714,24 @@ async function core(req, res, url) {
       case '/api/aprovacao/decidir': {
         const a = approvals.get(String(body.id));
         if (!a) return send(res, 404, { erro: 'pedido não existe mais (expirou ou foi cancelado)' });
+        if (a.tipo === 'pergunta') { // resposta às perguntas do Claude: { pergunta: "opção" | "opção1, opção2" | "texto livre" }
+          if (body.permitir !== true) return settle(a, 'deny', 'O dono dispensou a pergunta. Siga com a melhor suposição e avise o dono.', 'dono'), send(res, 200, { ok: true });
+          const r = body.respostas && typeof body.respostas === 'object' ? body.respostas : {};
+          const answers = {};
+          for (const q of a.perguntas) { const t = str(r[q.question], 1000).trim(); if (!t) return send(res, 400, { erro: 'responda todas as perguntas' }); answers[q.question] = t; }
+          settle(a, 'allow', '', 'dono', { updatedInput: { ...a.input, answers } });
+          return send(res, 200, { ok: true });
+        }
         const sessao = body.permitir === true && body.sessao === true && a.risco === 'normal'; // produção nunca vira automático
         const lembrar = body.permitir === true && body.lembrar === true && a.lembravel; // aprova e guarda o texto exato como permissão do projeto
         if (sessao) autoSessao.add(a.chatId);
         if (lembrar) { try { projetos.atualizarPolitica(a.proj.id, (c) => { if (!c.lembrados.some((l) => l.comando === a.comando)) c.lembrados.push({ comando: a.comando, quando: new Date().toISOString() }); }); } catch {} }
         settle(a, body.permitir === true ? 'allow' : 'deny', body.permitir === true ? '' : 'Negado pelo dono.', sessao ? 'dono (sessão)' : lembrar ? 'dono (lembrou)' : 'dono');
         if (sessao) for (const o of pendingOf(a.chatId)) if (o.risco === 'normal') settle(o, 'allow', '', 'sessão');
+        if (a.tool === 'ExitPlanMode' && body.permitir === true) { // plano aprovado: desliga o modo plan, senão a próxima mensagem voltaria a abrir em plan
+          const c = loadChats().chats[a.chatId];
+          if (c && c.plan) { c.plan = false; c.updated = Date.now(); saveChat(c); }
+        }
         return send(res, 200, { ok: true });
       }
       case '/api/aprovacao/sessao': { // revogar "aprovar todos da sessão"
@@ -711,6 +758,18 @@ async function core(req, res, url) {
         jobs.delete(body.id);
         writeJson(P().CHATS, d);
         return send(res, 200, { ok: true });
+      }
+      case '/api/reiniciar': { // reinicia o próprio servidor: responde, encerra conversas em andamento e sobe um processo novo
+        audit(P(), { chat: '-', tool: 'servidor', resumo: 'reiniciar o servidor', risco: 'normal', decisao: 'liberado', quem: 'dono', motivo: 'botão Reiniciar' });
+        send(res, 200, { ok: true });
+        res.on('finish', () => {
+          for (const [id, j] of jobs) { if (!j.done) { denyAll(id, 'Servidor reiniciando.'); try { j.child.kill(); } catch {} } }
+          // processo auxiliar separado: espera a porta liberar e sobe o servidor de novo (mesmos logs do atalho)
+          const cod = `const fs=require('node:fs'),p=require('node:path'),d=${JSON.stringify(HERE)};setTimeout(()=>require('node:child_process').spawn(process.execPath,['server.mjs'],{cwd:d,detached:true,windowsHide:true,stdio:['ignore',fs.openSync(p.join(d,'tilo.log'),'w'),fs.openSync(p.join(d,'tilo.err.log'),'w')],env:{...process.env,ANTHROPIC_API_KEY:'',ANTHROPIC_AUTH_TOKEN:''}}).unref(),1500)`;
+          spawn(process.execPath, ['-e', cod], { detached: true, windowsHide: true, stdio: 'ignore' }).unref();
+          setTimeout(() => process.exit(0), 100);
+        });
+        return;
       }
       default: return send(res, 404, { erro: 'não encontrado' });
     }
