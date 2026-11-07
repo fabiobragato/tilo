@@ -6,8 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { validarConfig } from './politica.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const FILE = path.join(HERE, 'projetos.json');
-const DADOS = path.join(HERE, 'dados');
+const BASE = process.env.TILO_DADOS_BASE ? path.resolve(process.env.TILO_DADOS_BASE) : HERE; // só os testes mudam isto: isola projetos.json, dados/ e logos/
+const FILE = path.join(BASE, 'projetos.json');
+const DADOS = path.join(BASE, 'dados');
 const CLAUDE_HOME = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 const PASTAS_PADRAO = ['docs', 'planning', 'pendencias', 'apps', 'infra'];
 const ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -21,7 +22,7 @@ function resolver(r) {
   const ROOT = path.resolve(r.raiz);
   const dir = path.join(DADOS, r.id);
   try { fs.mkdirSync(dir, { recursive: true }); } catch {}
-  const abs = (p) => (p ? path.resolve(HERE, p) : '');
+  const abs = (p) => (p ? path.resolve(BASE, p) : '');
   return {
     id: r.id, nome: String(r.nome || r.id), descricao: String(r.descricao || ''), cor: COR.test(r.cor || '') ? r.cor : '#5b5cf0',
     icone: abs(r.icone), logo: abs(r.logo), politica: r.politica || {}, // regras de comando próprias (ver politica.mjs)
@@ -92,14 +93,14 @@ function decodificarImagem(dataUrl, rotulo) {
   return { buf, ext };
 }
 function salvarImagens(id, { icone, logo }) {
-  const dir = path.join(HERE, 'logos');
+  const dir = path.join(BASE, 'logos');
   fs.mkdirSync(dir, { recursive: true });
   const out = {};
   for (const [campo, img, sufixo] of [['icone', icone, 'icone'], ['logo', logo, 'logo']]) {
     if (!img) continue;
     for (const e of ['.png', '.jpg', '.webp']) { try { fs.unlinkSync(path.join(dir, `${id}-${sufixo}${e}`)); } catch {} } // troca de formato não deixa lixo
     const rel = `logos/${id}-${sufixo}${img.ext}`;
-    fs.writeFileSync(path.join(HERE, rel), img.buf);
+    fs.writeFileSync(path.join(BASE, rel), img.buf);
     out[campo] = rel;
   }
   return out;
@@ -154,12 +155,20 @@ export function editar({ id, nome, cor, descricao, icone, logo, removerIcone, re
   Object.assign(r, salvarImagens(id, { icone: imgIcone, logo: imgLogo }));
   for (const [flag, campo] of [[removerIcone, 'icone'], [removerLogo, 'logo']]) {
     if (flag === true && !(campo === 'icone' ? imgIcone : imgLogo) && r[campo]) {
-      const f = path.resolve(HERE, r[campo]);
-      if (f.startsWith(path.join(HERE, 'logos') + path.sep)) { try { fs.unlinkSync(f); } catch {} } // só apaga dentro de logos/
+      const f = path.resolve(BASE, r[campo]);
+      if (f.startsWith(path.join(BASE, 'logos') + path.sep)) { try { fs.unlinkSync(f); } catch {} } // só apaga dentro de logos/
       delete r[campo];
     }
   }
   fs.writeFileSync(FILE, JSON.stringify({ projetos: registro }, null, 2));
+  return { id };
+}
+
+// Tira o projeto da lista do Tilo. NÃO apaga nada: a pasta do projeto, dados/<id>/ (conversas, auditoria) e logos/ ficam como estão.
+export function remover(id) {
+  const registro = lerRegistro();
+  if (!registro.some((x) => x.id === id)) throw new Error('projeto não encontrado');
+  fs.writeFileSync(FILE, JSON.stringify({ projetos: registro.filter((x) => x.id !== id) }, null, 2));
   return { id };
 }
 

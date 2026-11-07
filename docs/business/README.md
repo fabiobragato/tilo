@@ -14,6 +14,7 @@ O Tilo é uma ferramenta local para o dono de projetos de software: ele escolhe 
 - [permissoes-do-projeto.md](permissoes-do-projeto.md): pacotes, comandos lembrados, bloqueios e produção por projeto.
 - [documentacao-com-claude.md](documentacao-com-claude.md): montar e atualizar `docs/` com o Claude.
 - [biblioteca-de-documentos.md](biblioteca-de-documentos.md): acervo de documentos técnicos reaproveitáveis.
+- [consumo-de-tokens.md](consumo-de-tokens.md): tokens por conversa e consumo estimado do dia e da semana.
 - [auditoria.md](auditoria.md): registro das decisões.
 
 Conceitos ainda em aberto ficam em [../../planning/](../../planning/README.md); pendências do dono em [../../pendencias/](../../pendencias/README.md).

@@ -7,6 +7,9 @@ Cobre as variáveis lidas pelo código, os scripts de ambiente e como o servidor
 | Variável | Onde é lida | Efeito |
 |---|---|---|
 | `TILO_PORT` | `server.mjs`, `aprovador-mcp.mjs`, `scripts/iniciar-tilo.ps1`, `scripts/verificar.ps1` | Porta do servidor (padrão 4777). |
+| `TILO_DADOS_BASE` | `projetos.mjs` | Só para testes: pasta onde ficam `projetos.json`, `dados/` e `logos/` (padrão: pasta do Tilo). |
+| `TILO_CAVEMAN` | `server.mjs` | `off` desliga o Caveman nas conversas (padrão: ligado se o plugin estiver instalado). |
+| `TILO_CAVEMAN_NIVEL` | `server.mjs` | Nível do Caveman: `lite` (padrão), `full` ou `ultra`. Repassado ao plugin como `CAVEMAN_DEFAULT_MODE`. |
 | `TILO_PUBLIC_PORT` | `server.mjs` | Porta aceita no cabeçalho Host/Origin (padrão = `TILO_PORT`). |
 | `TILO_BIND` | `server.mjs` | Endereço de escuta (padrão `127.0.0.1`). |
 | `CLAUDE_CONFIG_DIR` | `projetos.mjs` | Pasta de configuração do Claude Code (padrão `~/.claude`); de lá vêm os transcripts das sessões do terminal. |

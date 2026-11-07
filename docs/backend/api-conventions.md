@@ -26,6 +26,7 @@ Cobre as rotas HTTP de `server.mjs`, o formato das respostas, os limites e os c�
 |---|---|---|
 | GET | `/api/projetos` | Lista os projetos (`id`, `nome`, `descricao`, `cor`, `logo`, `logoLargo`, `temIcone`, `temLogo`). |
 | POST | `/api/projetos` | Cadastra projeto: `nome`, `raiz`, `cor`, `descricao`, `estruturaBase`, `icone`, `logo`. Devolve `{ id, criado }`. |
+| POST | `/api/projetos/remover` | Tira o projeto (`id`) da lista. Não apaga a pasta do projeto nem `dados/<id>/`. |
 | POST | `/api/projetos/editar` | Edita `nome`, `cor`, `descricao`, `icone`, `logo`, `removerIcone`, `removerLogo` de um projeto (`id`). |
 
 ## Rotas de projeto — GET
@@ -36,10 +37,12 @@ Cobre as rotas HTTP de `server.mjs`, o formato das respostas, os limites e os c�
 | `/api/versao` | `sig`: hash dos caminhos e datas de `docs/`, `planning/`, `pendencias/`. |
 | `/api/arquivos` | Até 500 arquivos `.md` de `docs/`, `planning/`, `pendencias/`, mais recentes primeiro. |
 | `/api/file?p=<caminho>` | Conteúdo de um arquivo do projeto (ver restrições abaixo). |
-| `/api/sessoes` | Sessões do terminal (Claude Code) dos últimos 7 dias, até 40. |
+| `/api/sessoes` | Sessões do terminal (Claude Code) dos últimos 7 dias, até 40; cada uma com `uso`. |
 | `/api/sessao?id=<uuid>` | Últimas 60 mensagens de uma sessão do terminal. |
-| `/api/chats` | Conversas do painel, mais recentes primeiro. |
-| `/api/chat/stream?id=<uuid>` | Texto acumulado da execução, se terminou e aprovações pendentes. |
+| `/api/chats` | Conversas do painel, mais recentes primeiro. Cada uma traz `uso` (tokens lidos do transcript do Claude Code; `null` se não houver). |
+| `/api/consumo` | Estimativa de tokens de hoje e dos últimos 7 dias (`hoje`, `semana`, `porDia`) somando os transcripts de todos os projetos cadastrados. Ver [../business/consumo-de-tokens.md](../business/consumo-de-tokens.md). |
+| `/api/chat/stream?id=<uuid>` | Estado ao vivo da execução: `text` (texto do turno em curso, com streaming), `tools` (ações do turno em curso: `nome`, `resumo`, `detalhe`, `ini`, `ms`, `estado`), `fila` (mensagens enviadas e ainda não lidas), `ocupado`, `bg` (tarefas em segundo plano), `rev` (sobe quando o histórico ou a fila mudam), `done` e `pendentes` (aprovações da conversa). |
+| `/api/aprovacoes` | Aprovações pendentes das conversas **deste projeto** (nunca de outro; mais antigas primeiro). Cada uma traz `chatId`, `chat` (título) e `projeto`. A tela consulta a cada 1,5 s e mostra cada pedido só na conversa dona dele. |
 | `/api/documentacao` | Cobertura por área, arquivos recentes e última execução de documentação. |
 | `/api/biblioteca?q=` | Áreas, coleções, documentos (com busca), documentos publicáveis deste projeto. |
 | `/api/biblioteca/doc?id=` | Conteúdo de um documento da biblioteca. |
@@ -56,10 +59,10 @@ Restrições de `/api/file`: o primeiro segmento do caminho precisa estar em `pa
 | `/api/estado` | `id`, `status`, `nota` | Grava o estado de um item. `status`: `aberto`, `andamento`, `feito`, `ignorado`. `nota` até 2000 caracteres. |
 | `/api/remover` | `line`, `raw` | Apaga a linha da pendência no README, se o conteúdo ainda for o mesmo (senão 409). |
 | `/api/sessoes/meta` | `id`, `apelido`, `itemId`, `oculto` | Apelido (80), vínculo com pendência (12) e ocultar sessão do terminal. |
-| `/api/chat/novo` | `title`, `itemId`, `contexto`, `model`, `plan` | Cria conversa com `edit` e `exec` ligados (alteráveis depois em `/api/chat/config`). |
-| `/api/chat/config` | `id`, `model`, `plan`, `edit`, `exec`, `title`, `closed` | Altera a conversa. `closed: true` encerra (cancela a resposta em andamento e as aprovações pendentes); `false` reabre. |
-| `/api/chat/enviar` | `id`, `text` | Envia mensagem (até 20.000 caracteres) e inicia o `claude`. 409 se já está respondendo ou se a conversa está encerrada. Se o título ainda é "Nova conversa", vira o início da 1ª mensagem (até 60 caracteres). |
-| `/api/chat/cancelar` | `id` | Nega pedidos pendentes e encerra o processo. |
+| `/api/chat/novo` | `title`, `itemId`, `contexto`, `model`, `plan`, `modo` | Cria conversa; `modo` é `perguntar`, `editar` (padrão) ou `leitura`. |
+| `/api/chat/config` | `id`, `model`, `plan`, `modo`, `title`, `closed` | Altera a conversa. `modo`: `perguntar`, `editar`, `plan`, `auto` ou `leitura` (400 em conversa de documentação). Modo e modelo valem na hora, mesmo com a execução em andamento. `closed: true` encerra (mata o processo, nega pedidos pendentes e guarda no histórico, marcadas, as mensagens que o Claude não leu); `false` reabre. |
+| `/api/chat/enviar` | `id`, `text`, `mid` | Envia mensagem (até 20.000 caracteres). **Aceita mesmo com o Claude trabalhando**: a mensagem vai para a fila do Claude Code e entra no histórico quando ele a lê. `mid` (uuid gerado pela tela) evita duplicar o mesmo envio. 409 se a conversa está encerrada ou se já há 20 mensagens na fila. Se o título ainda é "Nova conversa", vira o início da 1ª mensagem (até 60 caracteres). |
+| `/api/chat/cancelar` | `id` | Botão Parar: nega pedidos pendentes e interrompe o passo em curso (igual ao Esc do terminal); a conversa continua aceitando mensagens. Se o Claude não parar em 10 s, o processo é encerrado. Resposta: `resultado` = `interrompido`, `encerrado` ou `nada em execução`. |
 | `/api/chat/apagar` | `id` | Apaga a conversa. |
 | `/api/reiniciar` | (vazio) | Responde `{ ok }`, nega aprovações pendentes, encerra as conversas em andamento e reinicia o servidor (processo auxiliar sobe `server.mjs` de novo após ~1,5 s, com os logs `tilo.log` e `tilo.err.log`). Registra na auditoria. |
 | `/api/aprovacao/pedir` | `chatId`, `tool_name`, `input` | Chamada do `aprovador-mcp.mjs`; fica aberta até haver decisão. |
@@ -90,7 +93,7 @@ Restrições de `/api/file`: o primeiro segmento do caminho precisa estar em `pa
 | 403 | Host/Origin não permitido; página sem token; caminho de arquivo não permitido. |
 | 404 | Projeto, rota, conversa ou arquivo inexistente. |
 | 405 / 415 | Método ou tipo de conteúdo não aceito. |
-| 409 | Conversa já respondendo; já existe trabalho de documentação em andamento; README mudou; pedido de aprovação sem conversa em execução. |
+| 409 | Conversa encerrada; fila cheia; já existe trabalho de documentação em andamento; README mudou; pedido de aprovação sem conversa em execução. |
 | 500 | Erro interno (ou modelo de prompt ausente em `modelos/`). |
 
 O cliente do painel (`assets/app.js`) reescreve `/api/...` para `/api/p/<id>/...`; ver [../frontend/api-integration.md](../frontend/api-integration.md).

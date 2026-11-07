@@ -14,6 +14,7 @@ Cobre como o cliente chama o backend. As rotas estão em [../backend/api-convent
 | Tela | Chamadas |
 |---|---|
 | Pendências | `GET /api/pendencias`, `POST /api/estado`, `POST /api/remover` |
+| Consumo | `GET /api/consumo` |
 | Sessões | `GET /api/sessoes`, `GET /api/sessao`, `POST /api/sessoes/meta` |
 | Chat | `GET /api/chats`, `POST /api/chat/novo`, `config`, `enviar`, `cancelar`, `apagar`; `GET /api/chat/stream`; `POST /api/aprovacao/decidir`, `/api/aprovacao/sessao` |
 | Documentação (explorador de arquivos) | `GET /api/arquivos`, `GET /api/file` |

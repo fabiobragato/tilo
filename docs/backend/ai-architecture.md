@@ -4,35 +4,60 @@ Cobre como `server.mjs` executa o `claude`, como as conversas funcionam e como o
 
 ## Execução do `claude`
 
-Função `startJob` em `server.mjs`. Para cada mensagem, um processo `claude` é iniciado com:
+Função `startJob` em `server.mjs` (estado da conversa em `fluxo.mjs`). **Uma conversa usa um único processo `claude` enquanto houver trabalho**, no mesmo canal que o terminal usa (`stream-json` nos dois sentidos). Mensagens novas são escritas no stdin a qualquer momento: o próprio Claude Code as enfileira e as entrega entre dois passos da tarefa (testado: uma instrução enviada durante um comando de 20 s entrou na mesma resposta). O painel nunca abre dois processos para a mesma conversa.
 
 | Argumento | Valor |
 |---|---|
-| `-p --output-format text` | Modo não interativo, saída em texto. |
-| `--allowedTools` | `Read,Grep,Glob`; acrescenta `Edit,Write` só se a conversa permite edição (`edit` ligado e `plan` desligado, e não é conversa de documentação). |
-| `--disallowedTools` | `Edit,Write` quando a edição não está liberada (exceto em conversas de documentação); `Bash,PowerShell` quando comandos não estão liberados (`exec` desligado, ou `plan` ligado, ou conversa de documentação). |
+| `-p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --replay-user-messages` | Entrada e saída em eventos JSON, com texto parcial (streaming) e o eco de cada mensagem lida (é assim que se sabe que ela saiu da fila). |
+| `--allowedTools` | Sempre `Read,Grep,Glob`. Editar e rodar comandos passam SEMPRE pelo aprovador, que decide pelo **modo atual** da conversa. |
+| `--disallowedTools` | Só em conversa de documentação: `Bash,PowerShell`. |
 | `--setting-sources project` | Só configurações do projeto. |
 | `--settings` | `<tmp>/tilo-settings.json`, gerado na partida (ver abaixo). |
 | `--mcp-config` + `--strict-mcp-config` | `<tmp>/tilo-mcp-<chat>.json`, que declara o servidor MCP `tilo` (`aprovador-mcp.mjs`). |
 | `--permission-prompt-tool` | `mcp__tilo__approve`. |
-| `--append-system-prompt` | Texto fixo `SYSTEM` de `server.mjs` (pede português simples e conferência no código e em `docs/`). |
-| `--add-dir` | Pastas de leitura extra: documentos de referência da biblioteca ou documentos de origem da generalização. |
-| `--permission-mode plan` | Quando a conversa está em modo plan (e não é de documentação). Ao aprovar um pedido `ExitPlanMode` em `/api/aprovacao/decidir`, o servidor grava `plan: false` na conversa; sem isso, cada mensagem nova (um processo `claude` novo) reabriria em plan. |
-| `--model` | `sonnet`, `opus` ou `haiku` (padrão `sonnet`). |
-| `--session-id` / `--resume` | O id da conversa; `--session-id` na primeira mensagem, `--resume` nas seguintes. |
+| `--append-system-prompt` | Texto fixo `SYSTEM` de `server.mjs`. |
+| `--plugin-dir` | Pasta do plugin Caveman já instalado no usuário (`caveman@caveman`, lida de `~/.claude/plugins/installed_plugins.json`); ver "Caveman" abaixo. Só entra se o plugin existir. |
+| `--add-dir` | Pastas de leitura extra (documentos de referência da biblioteca ou de origem da generalização). |
+| `--permission-mode plan` | Quando a conversa nasce/reabre em plan. Com o processo vivo, a troca é feita por `set_permission_mode` (e o modelo por `set_model`), sem reiniciar. |
+| `--model` | Id completo, escolhido pela chave da conversa em `MODEL_IDS` (`server.mjs`): `fable` = `claude-fable-5-1`, `opus` = `claude-opus-5-5`, `sonnet` = `claude-sonnet-5-5` (padrão), `haiku` = `claude-haiku-5-5`. A versão fica explícita; para atualizar, troque `MODEL_IDS` e `MODELOS` em `assets/app.js`. Cada resposta guarda `modeloId`, o modelo real informado pelo Claude no evento `init`, e a tela mostra essa versão. |
+| `--session-id` / `--resume` | O id da conversa; `--session-id` na primeira execução, `--resume` nas seguintes. |
 
-- Diretório de trabalho: raiz do projeto; na generalização, a pasta de rascunhos do lote.
-- A mensagem do usuário vai por stdin. Na primeira mensagem de uma conversa com `contexto`, o texto é precedido por "Pendência em foco: ...".
+- Diretório de trabalho: raiz do projeto; na generalização, a pasta de rascunhos do lote. Nenhum texto do usuário vai em argumentos (vai pelo stdin).
 - Ambiente: `ANTHROPIC_API_KEY` e `ANTHROPIC_AUTH_TOKEN` vazias.
-- A saída padrão é acumulada em memória (`jobs`). O painel consulta `/api/chat/stream` a cada 700 ms. Ao terminar, a resposta é gravada em `chats.json`; se o `claude` sai com código diferente de zero, a mensagem leva o aviso `[claude saiu com código N]` e a saída de erro, com `erro: true`.
-- Modelos válidos são validados contra a lista fixa `MODELS`.
+
+### Caveman (respostas curtas)
+
+Como `--setting-sources project` ignora os plugins do usuário, o servidor carrega o plugin Caveman já instalado só nas conversas do Tilo, com `--plugin-dir`, e define `CAVEMAN_DEFAULT_MODE` (padrão `lite`; ver `TILO_CAVEMAN_NIVEL` e `TILO_CAVEMAN` em [configuration.md](configuration.md)). O plugin injeta as regras de estilo ao iniciar cada processo (inclusive nos `--resume`); código, comandos, caminhos e avisos de segurança continuam completos. O servidor não instala nem altera o plugin. Efeitos a saber: os hooks do plugin são código de terceiros e rodam fora do aprovador de comandos; o plugin grava a marca `~/.claude/.caveman-active` (a barra de status do terminal lê esse arquivo). Se o plugin não está instalado, nada muda.
+
+### Ciclo de vida e mensagens
+
+- **Estado de execução ≠ entrada disponível.** `/api/chat/enviar` aceita mensagem sempre (exceto conversa encerrada). Sem processo vivo: grava a mensagem e abre o processo. Com processo vivo: escreve no stdin e a mensagem fica em `fila`; ela só entra no histórico quando o Claude a lê (eco `isReplay`), depois do que ele já tinha dito, a mesma ordem do terminal. Mensagens iguais (`mid`) não duplicam. Máximo 20 na fila.
+- Se a mensagem chega com o processo já fechando, espera em `depois` e abre o processo seguinte (nunca dois ao mesmo tempo).
+- Cada turno termina em um evento `result`: a resposta (texto + ferramentas usadas) vira uma mensagem do histórico. Com a fila vazia, sem turno em curso e sem tarefa em segundo plano, o stdin é fechado e o processo termina. Fila que o Claude não leu em 15 s é dada como não lida; tarefas em segundo plano seguram o processo por até 30 min.
+- **Parar** (`/api/chat/cancelar`) envia `control_request: interrupt` (o Esc do terminal): para o passo em curso e a sessão continua. Sem parada em 10 s, encerra o processo (no Windows, `taskkill /T`, porque o `claude` roda dentro de um `cmd.exe`).
+- **Falhas:** se o processo sai com erro, o que já havia sido dito é gravado com o aviso e as mensagens nunca lidas entram no histórico marcadas `naoLida`. Encerrar, apagar e reiniciar o servidor fazem o mesmo. Depois de uma falha a próxima mensagem abre um processo novo com `--resume` (contexto preservado).
+- Eventos de sub-agentes (`parent_tool_use_id`) não entram no texto principal.
+
+### Modos (um seletor só)
+
+`modoEfetivo` em `server.mjs`: `plan` (se `plan` ligado) > `auto` (se a conversa está em `autoSessao`, só memória) > `modo` gravado (`perguntar`, `editar` ou `leitura`; padrão `editar`). Como o aprovador lê o modo a cada pedido, trocar de modo vale na hora:
+
+| Modo | Edição de arquivo | Comando |
+|---|---|---|
+| `perguntar` | pede aprovação | política + aprovação |
+| `editar` (padrão) | liberada dentro da pasta do projeto (`quem: "modo"` na auditoria) | política + aprovação |
+| `plan` | só planeja (próprio Claude) | só planeja |
+| `auto` | liberada | comuns liberados; produção e bloqueados continuam como estão |
+| `leitura` | negada | negado |
+
+As regras `deny` das settings (segredos, arquivos do próprio Tilo) continuam valendo em todos os modos.
 
 ## Configurações geradas (`gerarSettings`)
 
 Na partida, o servidor lê `claude-settings.json` e acrescenta regras `deny` com o nome real da pasta do Tilo, gravando `<tmp>/tilo-settings.json`:
 
 - Leitura negada: `.env*` (variações), `.ssh/**`, `.claude/**`, `*.pem`, `id_ed25519*`, `id_rsa*` (do arquivo base) e, na pasta do Tilo, `.token` e `projetos.json`.
-- Edição/escrita negadas na pasta do Tilo: `assets/**`, `modelos/**`, `scripts/**` e os arquivos `server.mjs`, `aprovador-mcp.mjs`, `politica.mjs`, `catalogo.mjs`, `projetos.mjs`, `claude-settings.json`, `projetos.json`.
+- Edição/escrita negadas na pasta do Tilo: `assets/**`, `modelos/**`, `scripts/**`, `dados/**`, `catalogo/**`, `logos/**` e os arquivos `server.mjs`, `aprovador-mcp.mjs`, `politica.mjs`, `catalogo.mjs`, `projetos.mjs`, `claude-settings.json`, `projetos.json`, `index.html`, `inicio.html`, `package.json`, `iniciar.cmd` e os arquivos `*.test.mjs`.
 - Edição/escrita de `.env*` negada em qualquer pasta.
 
 ## Aprovador MCP (`aprovador-mcp.mjs`)
@@ -43,7 +68,7 @@ Na partida, o servidor lê `claude-settings.json` e acrescenta regras `deny` com
 
 ## Decisão de cada pedido (`/api/aprovacao/pedir`)
 
-1. Conversa precisa existir e estar em execução (senão 409).
+1. Conversa precisa existir, ser do projeto da chamada e estar em execução (senão 409).
 1a. Se a ferramenta é `AskUserQuestion` (as perguntas com opções que o Claude faz, comuns no modo plan), não passa pela política: vira um pedido do tipo `pergunta` (`askPergunta`) que o painel mostra como perguntas selecionáveis. O dono responde por `/api/aprovacao/decidir` com `respostas` (pergunta → opção, várias separadas por vírgula, ou texto livre de "Outro"); o servidor devolve `updatedInput` com `answers`, e `aprovador-mcp.mjs` repassa ao Claude. "Dispensar" nega com a orientação de seguir com a melhor suposição. Mesmo prazo de 5 minutos.
 2. Em conversa de documentação, `Write`, `Edit` e `MultiEdit` são avaliados por `avaliarArquivo`; demais ferramentas e conversas comuns por `avaliar` (ver [command-policy.md](command-policy.md)).
 3. Ação `permitir` ou `negar` é decidida na hora e registrada na auditoria (`quem: "política"`).

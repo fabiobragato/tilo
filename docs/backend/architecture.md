@@ -35,7 +35,7 @@ Montado em `projetos.mjs` (`resolver`) a partir de `projetos.json`: `id`, `nome`
 
 ## Estado em memória
 
-- `jobs`: execuções do `claude` em curso (saída acumulada, se terminou, processo).
+- `jobs`: um por conversa com processo `claude` vivo (`fluxo` com fila, texto ao vivo e ferramentas; `child`; `depois`, mensagens que chegaram enquanto o processo fechava). Ver [ai-architecture.md](ai-architecture.md).
 - `approvals`: pedidos de aprovação pendentes (expiram em 5 minutos).
 - `autoSessao`: conversas com "aprovar tudo desta conversa" ligado.
 - `sessCache`: cache de leitura das sessões do terminal (por arquivo, chave `mtime:tamanho`).

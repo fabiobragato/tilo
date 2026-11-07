@@ -45,7 +45,7 @@ Registros sem `id` válido ou sem `raiz` são ignorados. Se `projetos.json` não
 
 ## `chats.json`
 
-`{ "chats": { "<uuid>": conversa } }`. Campos da conversa: `id`, `title`, `itemId`, `contexto`, `model`, `plan`, `edit`, `exec`, `started`, `closed` (opcional; conversa encerrada), `created`, `updated`, `messages` e, nas conversas de documentação, `doc`, `gen`, `referencias`. Cada mensagem: `role`, `text`, `ts`, `model`, `plan` e, em respostas com falha, `erro`.
+`{ "chats": { "<uuid>": conversa } }`. Campos da conversa: `id`, `title`, `itemId`, `contexto`, `model`, `plan`, `modo` (`perguntar`, `editar` ou `leitura`; conversas antigas com `edit`/`exec` são convertidas na leitura), `started`, `closed` (opcional; conversa encerrada), `created`, `updated`, `messages` e, nas conversas de documentação, `doc`, `gen`, `referencias`. Cada mensagem: `role`, `text`, `ts`, `model`, `plan` e, conforme o caso: `mid` (id da mensagem do dono), `tools` (ações usadas na resposta: `nome`, `resumo`, `detalhe` com o comando ou caminho completo até 2.000 caracteres, `ini`, `ms` de duração e `estado`: `ok`, `erro` ou `interrompida`; nunca a saída da ferramenta), `interrompido`, `erro`, `naoLida` (mensagem que o Claude nunca chegou a ler).
 
 ## `auditoria.jsonl`
 

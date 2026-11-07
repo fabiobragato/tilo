@@ -28,7 +28,8 @@ Permitir que o dono registre as pastas dos seus projetos e abra o painel de cada
 
 ## Regras
 
-- Não existe função para excluir um projeto na interface nem na API.
+- **Excluir da lista:** botão "Excluir da lista" na tela de seleção (com confirmação) ou `POST /api/projetos/remover`. Só retira o projeto de `projetos.json`: a pasta do projeto, `dados/<id>/` (conversas, auditoria) e `logos/` não são apagados.
+- O Tilo só funciona no Windows (decisão do dono); macOS e Linux estão fora do escopo.
 - A pasta cadastrada é onde o `claude` roda (diretório de trabalho).
 - Arquivos do projeto liberados para visualização no painel: pastas listadas em `pastasLegiveis` (padrão `docs`, `planning`, `pendencias`, `apps`, `infra`); nunca arquivos `.env`.
 - Cada projeto tem as próprias permissões de comandos ([permissoes-do-projeto.md](permissoes-do-projeto.md)).

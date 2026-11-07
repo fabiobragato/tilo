@@ -1,6 +1,5 @@
 ﻿# Tilo — Project Knowledge: sobe o servidor local (se ainda não estiver no ar) e abre o navegador já autenticado.
 # Usado pelo atalho da área de trabalho (ver instalar-atalho.ps1). Janela oculta; logs em tilo.log.
-param([string]$Projeto = '')
 $ErrorActionPreference = 'Stop'
 $raiz = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) '..')).Path
 $porta = if ($env:TILO_PORT) { [int]$env:TILO_PORT } else { 4777 }
@@ -18,5 +17,5 @@ if (-not (Test-Porta)) {
 
 $tokenFile = Join-Path $raiz '.token'
 $token = if (Test-Path $tokenFile) { (Get-Content $tokenFile -Raw).Trim() } else { '' }
-# O link com token grava o cookie e redireciona para "/"; com -Projeto abre direto o painel dele depois do cookie.
+# O link com token grava o cookie e redireciona para "/".
 Start-Process ("http://localhost:$porta/" + $(if ($token) { "?t=$token" } else { '' }))

@@ -24,8 +24,12 @@ Nenhuma rota é pública além da resposta de erro.
 
 ## Host e Origin
 
-- `Host` precisa ser `127.0.0.1:<porta>` ou `localhost:<porta>`, onde a porta é `TILO_PUBLIC_PORT` (padrão: o valor de `TILO_PORT`, padrão 4777). Senão 403.
-- `Origin`, quando presente, precisa ser `http://127.0.0.1:<porta>` ou `http://localhost:<porta>`.
+- `Host` precisa ser `127.0.0.1:<porta>` ou `localhost:<porta>`, onde a porta é `TILO_PUBLIC_PORT` (padrão: o valor de `TILO_PORT`, padrão 4777) **ou** `TILO_PORT` (o aprovador chama por ela). Senão 403.
+- `Origin`, quando presente, precisa ser `http://127.0.0.1:<porta>` ou `http://localhost:<porta>`, com as mesmas portas.
+
+## Validade do token (risco aceito)
+
+O token é gerado uma vez em `.token` e o cookie vale 1 ano. O token também é aceito na barra de endereço (`?t=`). Não há tela para trocar: só apagando `.token` (decisão do dono: manter assim, pelo uso local de uma pessoa).
 
 ## Bind
 

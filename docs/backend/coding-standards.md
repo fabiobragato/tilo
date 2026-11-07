@@ -16,6 +16,8 @@ Cobre as convenções que o código segue, os testes e os comandos de validaçã
 ## Testes
 
 - `politica.test.mjs`: política de comandos, pacotes, comandos lembrados, bloqueios, validação, explicações e política de escrita de arquivos.
+- `padroes.test.mjs`: padrões da interface (todo `<select>` usa o combobox padrão; `combo.js` carregado; modelos do servidor e da tela iguais).
+- `fluxo.test.mjs`: interpretação dos eventos `stream-json` do Claude Code (fila de mensagens, ordem, streaming, ferramentas, interrupção, tarefas em segundo plano, erro).
 - `catalogo.test.mjs`: publicar, listar, buscar, ids seguros, anexar sem sobrescrever, remover e lotes de generalização.
 - Não há testes automatizados para `server.mjs`, `projetos.mjs`, `aprovador-mcp.mjs`, scripts PowerShell nem para o front-end.
 
@@ -23,9 +25,9 @@ Cobre as convenções que o código segue, os testes e os comandos de validaçã
 
 | Comando | Uso |
 |---|---|
-| `npm test` | Roda `node --test politica.test.mjs catalogo.test.mjs`. |
+| `npm test` | Roda `node --test politica.test.mjs catalogo.test.mjs projetos.test.mjs consumo.test.mjs fluxo.test.mjs padroes.test.mjs`. Os testes de projetos usam `TILO_DADOS_BASE` (pasta temporária) e não tocam em dados reais. |
 | `node --test politica.test.mjs` | Só os testes da política. |
 | `npm start` | Inicia o servidor. |
 | `npm run verificar` | Confere o ambiente (PowerShell). |
 
-Não há lint, formatador, build nem CI configurados.
+Não há lint, formatador nem build. O CI (`.github/workflows/ci.yml`) roda `npm test` a cada push e pull request, em Windows e Ubuntu, com Node 20 e 22. O servidor (`server.mjs`) ainda não tem testes automatizados.

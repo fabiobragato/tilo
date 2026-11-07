@@ -13,7 +13,7 @@ Gerar e manter a documentação oficial do projeto num padrão por área, a part
 | Áreas acompanhadas | `backend`, `frontend`, `business` (Regras de negócio), `data-platform`, `infra`, `deploy`, `security`; a tela conta os `.md` de cada uma em `docs/<área>/`. |
 | Arquivos gerais | `docs/README.md`, `CLAUDE.md`, `planning/README.md`, `pendencias/README.md` (a tela diz se existem). |
 | Modos | **Criar o que falta** (`criar`) e **Conferir com o código e atualizar** (`atualizar`, só aparece se já há documentos em `docs/`). |
-| Modelo de IA | `sonnet` (padrão), `opus` ou `haiku`. |
+| Modelo de IA | `sonnet` (padrão), `fable`, `opus` ou `haiku` (a lista mostra a versão de cada um). |
 
 ## 3. Fluxo
 

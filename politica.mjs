@@ -12,6 +12,8 @@ import path from 'node:path';
 const SHELLS = new Set(['Bash', 'PowerShell']);
 export const FERRAMENTAS_ARQUIVO = ['Write', 'Edit', 'MultiEdit'];
 const META = /[;&|<>`$(){}\\\n\r]/;
+// Portas do próprio Tilo: a padrão (4777) e as configuradas por variável de ambiente (só números, para entrar com segurança na regex).
+export const PORTAS_TILO = [...new Set(['4777', process.env.TILO_PORT, process.env.TILO_PUBLIC_PORT].filter((p) => /^\d{2,5}$/.test(p || '')))];
 const ARG = String.raw`(?: [\w./:=@~\-]+)*`;
 
 // [regex, título curto, explicação para leigos]
@@ -26,7 +28,7 @@ export const PADRAO = {
     [/git\s+reset\s+--hard/i, 'Descartar mudanças não salvas', 'Jogar fora todas as alterações que ainda não foram salvas no git.'],
     [/git\s+clean\s+-[a-z]*f/i, 'Apagar arquivos novos do git', 'Apagar arquivos que o git ainda não conhece.'],
     [/(^|[\s"'\/\\])\.env(?!\.example)\b|\.ssh\b|id_(ed25519|rsa|ecdsa)|\.token\b|[\/\\]\.claude\b|credentials|\.pem\b/i, 'Mexer em senhas e chaves', 'Ler ou alterar senhas, chaves de acesso e arquivos .env.'],
-    [/(localhost|127\.0\.0\.1|\[::1\]):4777|api\/aprovacao/i, 'Mexer na próprio Tilo', 'Tentar aprovar coisas sozinho ou alterar o Tilo.'],
+    [new RegExp(String.raw`(localhost|127\.0\.0\.1|\[::1\]):(${PORTAS_TILO.join('|')})\b|api\/aprovacao`, 'i'), 'Mexer no próprio Tilo', 'Tentar aprovar coisas sozinho ou alterar o Tilo.'],
     [/\b(curl|wget)\b[^\n]*(\s-d\s*@|--data(-binary|-raw|-urlencode)?[\s=]*@|\s-F\s|\s-T\s|--upload-file)/i, 'Enviar arquivos para a internet', 'Mandar arquivos do seu computador para fora.'],
     [/\b(invoke-webrequest|invoke-restmethod|iwr|irm)\b[^\n]*(-infile|-body\s)/i, 'Enviar arquivos para a internet', 'Mandar arquivos do seu computador para fora.'],
     [/\|\s*(sh|bash|zsh|iex|invoke-expression)\b|\b(iex|invoke-expression)\b|-encodedcommand|-enc\s|base64\s+(-d|--decode)[^\n]*\|/i, 'Executar código escondido', 'Baixar e rodar código sem você ver, ou comandos codificados para esconder o que fazem.'],

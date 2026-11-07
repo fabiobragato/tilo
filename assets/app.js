@@ -44,6 +44,13 @@ function ago(ms) {
   const m = Math.round(s / 60);
   return m < 60 ? `${m} min` : m < 1440 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`;
 }
+function dur(ms) { // 45 s · 12 min · 2 h 05 min · 3 d 4 h
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return s + ' s';
+  const m = Math.floor(s / 60); if (m < 60) return m + ' min';
+  const h = Math.floor(m / 60); if (h < 24) return `${h} h ${String(m % 60).padStart(2, '0')} min`;
+  return `${Math.floor(h / 24)} d ${h % 24} h`;
+}
 const age = (ms) => { const a = Date.now() - ms; return a < 120000 ? 'live' : a < 900000 ? 'recent' : ''; };
 function toast(t) { const e = $('#toast'); e.textContent = t; e.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => e.classList.remove('on'), 2600); }
 
@@ -78,27 +85,52 @@ async function api(path, body) {
 }
 
 // ---------- estado ----------
-const MODELS = { sonnet: 'Sonnet', opus: 'Opus', haiku: 'Haiku' };
+// Modelos do Claude (a chave é gravada na conversa; o servidor traduz para o id completo em MODEL_IDS de server.mjs). Para atualizar uma versão, troque aqui e lá.
+const MODELOS = {
+  fable: { nome: 'Fable', versao: '5.1', desc: 'O mais capaz. Exige créditos de uso (cobrados à parte da assinatura)' },
+  opus: { nome: 'Opus', versao: '5.5', desc: 'Raciocínio profundo, usa mais limite' },
+  sonnet: { nome: 'Sonnet', versao: '5.5', desc: 'Equilibrado, o melhor para o dia a dia' },
+  haiku: { nome: 'Haiku', versao: '5.5', desc: 'Rápido e econômico, para tarefas simples' },
+};
+const MODELS = Object.fromEntries(Object.entries(MODELOS).map(([k, m]) => [k, `${m.nome} ${m.versao}`]));
+const optsModelo = (sel) => Object.entries(MODELOS).map(([k, m]) => `<option value="${k}" ${sel === k ? 'selected' : ''}>${m.nome} ${m.versao}${k === DEFAULT_MODEL ? ' (padrão)' : ''} — ${m.desc}</option>`).join('');
 const DEFAULT_MODEL = 'sonnet';
-const mname = (m) => { const k = Object.keys(MODELS).find((x) => String(m || '').includes(x)); return k ? MODELS[k] : m ? String(m) : MODELS[DEFAULT_MODEL]; };
+const mname = (m) => { const r = String(m || '').match(/claude-([a-z]+)-(\d+)-(\d+)/); if (r) return `${r[1][0].toUpperCase()}${r[1].slice(1)} ${r[2]}.${r[3]}`; /* id real informado pelo Claude */ const k = Object.keys(MODELS).find((x) => String(m || '').includes(x)); return k ? MODELS[k] : m ? String(m) : MODELS[DEFAULT_MODEL]; };
 const PRIO = { alta: { e: 'Crítica', i: 'pi-exclamation-triangle', t: 'danger' }, media: { e: 'Importante', i: 'pi-flag', t: 'warning' }, baixa: { e: 'Pode esperar', i: 'pi-clock', t: 'success' } };
 const STATUS = { aberto: ['Aberto', 'neutral', 'pi-circle'], andamento: ['Em andamento', 'primary', 'pi-play-circle'], feito: ['Feito', 'success', 'pi-check-circle'], ignorado: ['Ignorado', 'neutral', 'pi-eye-slash'] };
+// Modos da conversa (um seletor só, como no Claude Code): [rótulo, explicação]. A ordem é a do Shift+Tab.
+const MODOS = {
+  perguntar: ['Perguntar tudo', 'Cada edição de arquivo e cada comando pedem a sua aprovação.'],
+  editar: ['Aceitar edições', 'Edita arquivos do projeto sem perguntar; comandos pedem aprovação.'],
+  plan: ['Planejamento', 'O Claude só lê e planeja; não altera arquivos nem roda comandos.'],
+  auto: ['Automático', 'Aprova sozinho edições e comandos comuns. Produção e comandos bloqueados continuam como estão.'],
+  leitura: ['Somente leitura', 'O Claude só lê: não edita arquivos nem roda comandos.'],
+};
 const S = {
   sections: [], state: { items: {} }, chats: [], term: [], files: [],
   sel: null, // { kind:'chat'|'term', id }
   tx: {}, // transcripts do terminal
+  avisados: new Set(), // planos pendentes de outras conversas que já abriram a conversa uma vez
   page: { pend: 1, sess: 1, arq: 1 }, size: { pend: 10, sess: 6, arq: 12 },
-  f: { sec: 0, prio: '', stat: 'ativos', q: '', sessTab: 'painel', hid: false, area: '' },
+  f: { sec: 0, prio: '', stat: 'ativos', q: '', sessTab: 'painel', hid: false, area: '', hideEnc: true },
   draft: {}, collapsed: ls.get('tilo.sidebar-collapsed', '0') === '1',
 };
 const st = (id) => S.state.items[id] || { status: 'aberto' };
 const items = () => S.sections.flatMap((s) => s.items);
 const itemById = (id) => items().find((i) => i.id === id);
-const isOpen = (i) => ['aberto', 'andamento'].includes(st(i.id).status);
+// "Em andamento" é automático: além do status marcado à mão, vale a pendência "aberta" que tem uma conversa do painel vinculada e NÃO encerrada.
+// Encerrar a conversa tira a pendência de "em andamento". Pendência feita/ignorada nunca entra.
+const autoAndamento = (i) => st(i.id).status === 'aberto' && S.chats.some((c) => c.itemId === i.id && !c.closed);
+const stEf = (i) => (autoAndamento(i) ? 'andamento' : st(i.id).status);
+const isOpen = (i) => ['aberto', 'andamento'].includes(stEf(i));
 const route = () => { const r = (location.hash.replace(/^#\//, '') || 'visao').split('?')[0]; return r === 'arquivos' ? 'documentacao' : r; }; // #/arquivos foi mesclada em Documentação
 
 // ---------- componentes ----------
 const badge = (txt, tone = 'neutral', icon = '') => `<span class="badge tone-${tone}">${icon ? `<i class="pi ${icon}"></i>` : ''}${esc(txt)}</span>`;
+// ---------- consumo de tokens (estimativa local, lida dos transcripts do Claude Code) ----------
+const fmtTok = (n) => (n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1).replace('.', ',') + ' mi' : n >= 1e3 ? (n / 1e3).toFixed(n >= 1e4 ? 0 : 1).replace('.', ',') + ' mil' : String(n));
+const usoNovo = (u) => (u ? u.entrada + u.saida + u.cacheCriacao : 0);
+const usoBadge = (u) => (usoNovo(u) ? badge(fmtTok(usoNovo(u)) + ' tokens', 'neutral', 'pi-database') : '');
 const prioBadge = (p) => badge(PRIO[p].e, PRIO[p].t, PRIO[p].i);
 const statusBadge = (s) => badge(STATUS[s][0], STATUS[s][1], STATUS[s][2]);
 const modelBadge = (m) => badge(mname(m), 'info', 'pi-microchip-ai');
@@ -151,14 +183,26 @@ function renderNav() {
 }
 
 // ---------- visão geral ----------
+// Estimativa local: soma dos tokens das conversas do painel e das sessões do terminal (todos os projetos cadastrados) neste computador.
+// O percentual real da assinatura só existe no claude.ai (Configurações > Uso).
+function cardConsumo() {
+  const c = S.consumo;
+  if (!c) return '';
+  const bloco = (rot, icone, u) => `<div class="cons-n"><strong>${fmtTok(usoNovo(u))}</strong><span><i class="pi ${icone}"></i> ${rot}</span></div>`;
+  return `<section class="card cons"><div class="cons-top"><div class="ico tone-primary"><i class="pi pi-chart-bar"></i></div>
+    <div class="cons-t"><h3>Consumo deste projeto</h3><p>Tokens usados no Claude, só neste projeto e neste computador.</p></div>
+    ${bloco('Hoje', 'pi-calendar', c.hoje)}${bloco('Últimos 7 dias', 'pi-calendar-plus', c.semana)}
+    <a class="btn primary" href="https://claude.ai/settings/usage" target="_blank" rel="noopener noreferrer"><i class="pi pi-external-link"></i> Ver limite no claude.ai</a></div></section>`;
+}
 function viewVisao() {
   const open = items().filter(isOpen), by = (p) => open.filter((i) => i.prio === p).length;
-  const doing = items().filter((i) => st(i.id).status === 'andamento');
-  const crit = open.filter((i) => i.prio === 'alta' && st(i.id).status !== 'andamento').slice(0, 5);
+  const doing = items().filter((i) => stEf(i) === 'andamento');
+  const crit = open.filter((i) => i.prio === 'alta' && stEf(i) !== 'andamento').slice(0, 5);
   const act = recentSessions().slice(0, 5);
   const liveN = act.filter((a) => a.running || Date.now() - a.t < 120000).length;
   const metric = (n, label, icon, tone, go) => `<div class="card metric" data-act="go" data-to="${go}"><div class="ico tone-${tone}"><i class="pi ${icon}"></i></div><div><strong>${n}</strong><span>${label}</span></div></div>`;
   return `<div class="page-head"><div><h1 class="page-title">Visão geral</h1><p class="page-sub">O que falta decidir, fazer e conferir — e o que está em andamento agora.</p></div></div>
+  ${cardConsumo()}
   <div class="grid g5" style="margin-bottom:16px">
     ${metric(by('alta'), 'Críticas abertas', 'pi-exclamation-triangle', 'danger', 'pendencias?prio=alta')}
     ${metric(by('media'), 'Importantes', 'pi-flag', 'warning', 'pendencias?prio=media')}
@@ -168,7 +212,7 @@ function viewVisao() {
   </div>
   <div class="grid g2">
     <section class="card"><div class="card-head"><div class="ico"><i class="pi pi-play-circle"></i></div><h3>Trabalhando agora</h3><a href="#/pendencias?stat=andamento">Ver todas</a></div><div class="card-body">
-      ${doing.length ? doing.slice(0, 5).map((i) => `<div class="row-line" data-act="open-item" data-id="${i.id}"><span class="badge tone-${PRIO[i.prio].t}"><i class="pi ${PRIO[i.prio].i}"></i></span><div class="rl-t trunc">${esc(i.title)}</div><span class="rl-s">${esc(short(i.section.replace(/\(.*\)/, ''), 22))}</span></div>`).join('') : empty('pi-play-circle', 'Nada em andamento. Marque uma pendência como “Em andamento”.')}
+      ${doing.length ? doing.slice(0, 5).map((i) => `<div class="row-line" data-act="open-item" data-id="${i.id}"><span class="badge tone-${PRIO[i.prio].t}"><i class="pi ${PRIO[i.prio].i}"></i></span><div class="rl-t trunc">${esc(i.title)}</div><span class="rl-s">${esc(short(i.section.replace(/\(.*\)/, ''), 22))}</span></div>`).join('') : empty('pi-play-circle', 'Nada em andamento. Uma pendência entra aqui sozinha quando você abre uma conversa sobre ela.')}
     </div></section>
     <section class="card"><div class="card-head"><div class="ico"><i class="pi pi-history"></i></div><h3>Sessões recentes</h3><a href="#/sessoes">Ver todas</a></div><div class="card-body">
       ${act.length ? act.map((a) => `<div class="row-line" data-act="open-sess" data-kind="${a.kind}" data-id="${a.id}"><span class="dot ${a.running ? 'live' : age(a.t)}"></span><div class="rl-t trunc">${esc(a.title)}</div>${a.plan ? badge('Plan', 'primary') : ''}<span class="rl-s">${a.kind === 'chat' ? 'painel' : 'terminal'} · ${ago(a.t)}</span></div>`).join('') : empty('pi-history', 'Sem sessões recentes.')}
@@ -193,7 +237,7 @@ function viewPend() {
   const f = S.f, all = items();
   const secs = S.sections.filter((s) => s.items.length);
   const filtered = all.filter((i) => {
-    const sts = st(i.id).status;
+    const sts = stEf(i);
     if (f.sec && S.sections.find((s) => s.n === f.sec)?.items.indexOf(i) < 0) return false;
     if (f.prio && i.prio !== f.prio) return false;
     if (f.stat === 'ativos' ? !['aberto', 'andamento'].includes(sts) : f.stat && sts !== f.stat) return false;
@@ -221,11 +265,11 @@ function viewPend() {
   <section class="card">${rows || empty('pi-check-circle', 'Nada por aqui com esses filtros 🎉')}</section>${pager('pend', pg)}`;
 }
 function itemRow(i) {
-  const e = st(i.id), linked = S.chats.filter((c) => c.itemId === i.id).length + S.term.filter((x) => x.itemId === i.id && !x.oculto).length;
+  const e = { ...st(i.id), status: stEf(i) }, auto = autoAndamento(i), linked = S.chats.filter((c) => c.itemId === i.id).length + S.term.filter((x) => x.itemId === i.id && !x.oculto).length;
   return `<div class="item ${i.prio} ${e.status} ${S.focus === i.id ? 'foco' : ''}" data-id="${i.id}">
     <div class="it-main"><div class="it-title">${esc(i.title)}</div>
       <p class="it-desc">${inline(esc(i.desc))}</p>${i.how && !(i.refs.length && i.how.replace(/`/g, '').trim().split(/\s+/)[0] === i.refs[0]) ? `<p class="it-how">${inline(esc(i.how))}</p>` : ''}
-      <div class="it-meta">${prioBadge(i.prio)}${statusBadge(e.status)}${linked ? badge(`${linked} conversa(s)`, 'info', 'pi-comments') : ''}${i.refs.map((p) => `<button class="ref" data-act="file" data-p="${esc(p)}"><i class="pi pi-file"></i>${esc(short(p, 44))}</button>`).join('')}</div></div>
+      <div class="it-meta">${prioBadge(i.prio)}${statusBadge(e.status)}${auto ? badge('automático', 'neutral', 'pi-bolt') : ''}${linked ? badge(`${linked} conversa(s)`, 'info', 'pi-comments') : ''}${i.refs.map((p) => `<button class="ref" data-act="file" data-p="${esc(p)}"><i class="pi pi-file"></i>${esc(short(p, 44))}</button>`).join('')}</div></div>
     <div class="it-act">
       <select class="sel sm" data-chg="status" data-id="${i.id}" aria-label="Status">${Object.entries(STATUS).map(([k, v]) => `<option value="${k}" ${e.status === k ? 'selected' : ''}>${v[0]}</option>`).join('')}</select>
       ${iconBtn('chat-item', 'pi-comments', 'Conversar com o Claude sobre isso', `data-id="${i.id}"`)}
@@ -249,13 +293,13 @@ function viewSess() {
   <section class="card">${body}</section>${pager('sess', pg, [6, 10, 20])}`;
 }
 const closedBadge = () => badge('Encerrada', 'neutral', 'pi-check-circle');
-function sessHead(title, t, running, plan, model, itemId, closed) {
+function sessHead(title, t, running, plan, model, itemId, closed, uso) {
   const it = itemId && itemById(itemId);
-  return `<div class="sess-top"><span class="dot ${running ? 'live' : age(t)}"></span><b>${esc(title)}</b>${closed ? closedBadge() : ''}${plan ? planBadge() : ''}${modelBadge(model)}${badge(running ? 'respondendo…' : ago(t), running ? 'success' : 'neutral', 'pi-clock')}${it ? badge(short(it.title, 30), 'primary', 'pi-link') : ''}</div>`;
+  return `<div class="sess-top"><span class="dot ${running ? 'live' : age(t)}"></span><b>${esc(title)}</b>${closed ? closedBadge() : ''}${plan ? planBadge() : ''}${modelBadge(model)}${usoBadge(uso)}${badge(running ? 'respondendo…' : ago(t), running ? 'success' : 'neutral', 'pi-clock')}${it ? badge(short(it.title, 30), 'primary', 'pi-link') : ''}</div>`;
 }
 function chatSessRow(c) {
   const rev = [...c.messages].reverse(), q = rev.find((m) => m.role === 'user')?.text, a = rev.find((m) => m.role === 'assistant')?.text;
-  return `<div class="sess">${sessHead(c.title, c.updated, c.running, c.plan, c.model, c.itemId, c.closed)}
+  return `<div class="sess">${sessHead(c.title, c.updated, c.running, c.plan, c.model, c.itemId, c.closed, c.uso)}
     ${q ? `<p class="q"><b>Você:</b> ${esc(q)}</p>` : ''}${a ? `<p class="q"><b>Claude:</b> ${esc(a)}</p>` : ''}
     <div class="acts"><button class="btn sm primary" data-act="open-sess" data-kind="chat" data-id="${c.id}"><i class="pi pi-comments"></i> Abrir</button>${iconBtn('del-chat', 'pi-trash', 'Apagar conversa', `data-id="${c.id}"`, 'danger')}</div></div>`;
 }
@@ -264,7 +308,7 @@ function linkSelect(x) {
 }
 function termSessRow(x) {
   const title = x.apelido || x.title || x.primeiro || x.id.slice(0, 8);
-  return `<div class="sess" style="${x.oculto ? 'opacity:.55' : ''}">${sessHead(title, x.mtime, false, x.mode === 'plan', x.model, x.itemId)}
+  return `<div class="sess" style="${x.oculto ? 'opacity:.55' : ''}">${sessHead(title, x.mtime, false, x.mode === 'plan', x.model, x.itemId, false, x.uso)}
     ${x.ultimo ? `<p class="q"><b>Você:</b> ${esc(x.ultimo)}</p>` : ''}${x.resposta ? `<p class="q"><b>Claude:</b> ${esc(x.resposta)}</p>` : ''}
     <div class="acts"><button class="btn sm primary" data-act="open-sess" data-kind="term" data-id="${x.id}"><i class="pi pi-eye"></i> Ver conversa</button>${linkSelect(x)}
       ${iconBtn('rename', 'pi-pencil', 'Dar apelido', `data-id="${x.id}"`)}${iconBtn('resume', 'pi-copy', 'Copiar “claude --resume” para retomar no terminal', `data-id="${x.id}"`)}${iconBtn('hide', x.oculto ? 'pi-eye' : 'pi-eye-slash', x.oculto ? 'Mostrar' : 'Ocultar', `data-id="${x.id}"`)}</div></div>`;
@@ -289,18 +333,25 @@ function renderArq() {
 const curChat = () => (S.sel?.kind === 'chat' ? S.chats.find((c) => c.id === S.sel.id) : null);
 const curTerm = () => (S.sel?.kind === 'term' ? S.term.find((x) => x.id === S.sel.id) : null);
 function viewChat() {
-  return `<div class="page-head"><div><h1 class="page-title">Conversar com Claude</h1><p class="page-sub">Usa a sua assinatura do Claude. Comandos: <code>/plan</code> e <code>/model sonnet|opus|haiku</code>.</p></div>
+  return `<div class="page-head"><div><h1 class="page-title">Conversar com Claude</h1><p class="page-sub">Usa a sua assinatura do Claude. Comandos: <code>/plan</code> e <code>/model fable|opus|sonnet|haiku</code>.</p></div>
     <button class="btn primary" data-act="new-chat"><i class="pi pi-plus"></i> Nova conversa</button></div>
   <div class="chat-layout">
     <aside class="card chat-list"><div class="hd">Conversas</div><div class="bd" id="cl-body"></div></aside>
     <section class="card chat-main">
       <div class="chat-head" id="chat-head"></div><div id="chat-ctx"></div>
-      <div class="chat-log" id="chat-log"></div>
+      <div class="chat-tabs" id="chat-tabs" hidden></div>
+      <div class="chat-log" id="chat-log"></div><div class="chat-log" id="chat-act" hidden></div>
+      <div class="plan-card" id="plan-card" hidden></div>
+      <div class="plan-card ap-card adlg" id="ap-card" hidden></div>
       <div class="composer" id="composer">
+        <div class="note" id="planbar" hidden style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:200px">A conversa ainda está em <b>modo planejamento</b> (o Claude só lê e planeja).</span>
+          <button class="btn primary sm" data-act="plan-continuar" title="Desliga o modo plan e manda o Claude executar o plano"><i class="pi pi-play"></i> Sair do planejamento e continuar</button>
+          <button class="btn sm" data-act="plan-sair" title="Só desliga o modo plan; você escreve a próxima mensagem"><i class="pi pi-sign-out"></i> Só sair</button></div>
         <div class="quick" id="quick">${[['Explique', 'Explique essa pendência em linguagem simples: o que é, por que importa e o que acontece se eu não fizer.'], ['Passo a passo', 'Me dê o passo a passo para eu fazer isso, com comandos exatos quando houver.'], ['Já está feito?', 'Confira no código e em docs/ se isso já está resolvido. Diga com evidência (arquivo e linha).'], ['Recomende', 'Dê uma recomendação clara com prós e contras, para eu decidir.']].map(([l, p]) => `<button class="chipbtn" data-act="quick" data-p="${esc(p)}">${l}</button>`).join('')}</div>
         <textarea id="msg" placeholder="Pergunte algo… ou use /plan, /model opus (Ctrl+Enter envia)"></textarea>
-        <div class="bar"><div style="display:flex;gap:14px;align-items:center"><label class="switch"><input type="checkbox" id="edit"> permitir editar arquivos</label><label class="switch" title="O Claude pede e você aprova cada comando aqui, na tela"><input type="checkbox" id="exec"> permitir comandos (com aprovação)</label><span class="hint" id="hint"></span></div>
-          <div style="display:flex;gap:8px"><button class="btn danger" id="stop" data-act="stop" hidden><i class="pi pi-stop-circle"></i> Parar</button><button class="btn primary" id="send" data-act="send"><i class="pi pi-send"></i> Enviar</button></div></div>
+        <div class="bar"><div class="runinfo"><span class="hint" id="hint"></span><span class="runstate" id="runstate" hidden></span></div>
+          <div class="sendrow"><div class="dd" id="dd-modelo"></div><div class="dd" id="dd-modo"></div>
+            <button class="btn danger" id="stop" data-act="stop" hidden title="Interrompe o que o Claude está fazendo agora (como Esc no terminal). A conversa continua."><i class="pi pi-stop-circle"></i> Parar</button><button class="btn primary" id="send" data-act="send" title="Enviar (Ctrl+Enter). Com o Claude trabalhando, a mensagem entra na fila e ele a lê no próximo passo."><i class="pi pi-send"></i> Enviar</button></div></div>
       </div>
       <div class="composer" id="closed-bar" hidden><span class="muted small">Esta conversa foi encerrada. O histórico fica guardado; reabra para continuar conversando.</span>
         <div><button class="btn primary" data-act="close-chat" data-v="0"><i class="pi pi-replay"></i> Reabrir conversa</button></div></div>
@@ -314,11 +365,16 @@ function updateChat() {
   const nEnc = S.chats.filter((c) => c.closed).length;
   const painel = [...S.chats].sort((a, b) => !!a.closed - !!b.closed) // encerradas ao final (sort estável preserva a ordem por data)
     .filter((c) => !(S.f.hideEnc && c.closed && !(S.sel?.kind === 'chat' && S.sel.id === c.id)))
-    .map((c) => `<div class="cl-item ${S.sel?.kind === 'chat' && S.sel.id === c.id ? 'on' : ''}" ${c.closed ? 'style="opacity:.6"' : ''} data-act="open-sess" data-kind="chat" data-id="${c.id}"><span class="dot ${c.running ? 'live' : age(c.updated)}" style="margin-top:5px"></span><div class="trunc" style="flex:1"><div class="t trunc">${esc(c.title)}</div><div class="s">${c.closed ? 'encerrada · ' : ''}${mname(c.model)}${c.plan ? ' · plan' : ''} · ${ago(c.updated)}</div></div></div>`).join('');
-  const term = S.term.filter((x) => !x.oculto).slice(0, 8).map((x) => `<div class="cl-item ${S.sel?.kind === 'term' && S.sel.id === x.id ? 'on' : ''}" data-act="open-sess" data-kind="term" data-id="${x.id}"><span class="dot ${age(x.mtime)}" style="margin-top:5px"></span><div class="trunc" style="flex:1"><div class="t trunc">${esc(x.apelido || x.title || x.primeiro || x.id.slice(0, 8))}</div><div class="s">terminal · ${mname(x.model)}${x.mode === 'plan' ? ' · plan' : ''} · ${ago(x.mtime)}</div></div></div>`).join('');
-  $('#cl-body').innerHTML = `<div class="list-sep" style="margin:-8px -8px 4px">Painel</div>${nEnc ? `<label class="switch small" style="padding:4px 8px"><input type="checkbox" data-chg="hideenc" ${S.f.hideEnc ? 'checked' : ''}> ocultar encerradas (${nEnc})</label>` : ''}${painel || '<div class="empty small">Sem conversas</div>'}<div class="list-sep" style="margin:8px -8px 4px">Terminal (recentes)</div>${term || '<div class="empty small">Sem sessões</div>'}`;
+    .map((c) => `<div class="cl-item ${S.sel?.kind === 'chat' && S.sel.id === c.id ? 'on' : ''} ${c.pendentes ? 'aguarda' : ''}" ${c.closed ? 'style="opacity:.6"' : ''} data-act="open-sess" data-kind="chat" data-id="${c.id}"><span class="dot ${c.running ? 'live' : age(c.updated)}" style="margin-top:5px"></span><div class="trunc" style="flex:1"><div class="t trunc">${esc(c.title)}</div><div class="s">${c.closed ? 'encerrada · ' : ''}${c.pendentes ? '<b class="aguarda">aguardando você</b> · ' : ''}${mname(c.model)}${c.plan ? ' · plan' : ''}${usoNovo(c.uso) ? ` · ${fmtTok(usoNovo(c.uso))} tokens` : ''} · ${ago(c.updated)}</div></div></div>`).join('');
+  // As sessões do terminal não aparecem mais aqui (continuam na tela Sessões, aba Terminal).
+  $('#cl-body').innerHTML = `${nEnc ? `<label class="switch small" style="padding:4px 8px"><input type="checkbox" data-chg="hideenc" ${S.f.hideEnc ? 'checked' : ''}> ocultar encerradas (${nEnc})</label>` : ''}${painel || '<div class="empty small">Sem conversas</div>'}`;
 
   const c = curChat(), t = curTerm(), ro = !!t;
+  if (!c) { $('#chat-tabs').hidden = true; $('#chat-act').hidden = true; $('#chat-log').hidden = false; } // sessão do terminal / nada selecionado: sem abas
+  for (const id of ['plan-card', 'ap-card']) { // um cartão de aprovação nunca fica visível numa conversa que não é a dele (some já ao trocar)
+    const b = $('#' + id); if (b && b.dataset.chat && b.dataset.chat !== c?.id) { b.hidden = true; b.innerHTML = ''; b.dataset.id = ''; b.dataset.chat = ''; }
+  }
+  if (S.aprovChat !== (c?.id || '')) { S.aprovChat = c?.id || ''; if (S.aprov) queueMicrotask(() => renderApprovals(S.aprov)); } // mostra já os pedidos da conversa aberta
   $('#composer').hidden = ro || !c || !!c.closed; $('#ro').hidden = !ro; $('#closed-bar').hidden = !c?.closed;
   if (!c && !t) {
     $('#chat-head').innerHTML = '<div class="ttl muted">Nenhuma conversa selecionada</div>'; $('#chat-ctx').innerHTML = '';
@@ -333,38 +389,150 @@ function updateChat() {
     if (tr?.messages) $('#chat-log').scrollTop = 1e9; return;
   }
   const it = c.itemId && itemById(c.itemId);
-  $('#chat-head').innerHTML = `<div class="ttl-grp"><div class="ttl trunc" title="Clique para renomear" data-act="rename-chat" style="cursor:text">${esc(c.title)}</div>${iconBtn('rename-chat', 'pi-pencil', 'Renomear conversa')}${c.closed ? closedBadge() : ''}</div>
-    <select class="sel sm" data-chg="model" title="Modelo (/model)" aria-label="Modelo">${Object.entries(MODELS).map(([k, v]) => `<option value="${k}" ${c.model === k ? 'selected' : ''}>${v}${k === DEFAULT_MODEL ? ' (padrão)' : ''}</option>`).join('')}</select>
-    <button class="btn sm ${c.plan ? 'primary' : ''}" data-act="plan" title="/plan — o Claude só lê e planeja, não altera arquivos"><i class="pi pi-list-check"></i> Plan ${c.plan ? 'ligado' : 'desligado'}</button>
-    ${c.autoAprovar ? `<button class="btn sm" data-act="revogar-sessao" data-id="${c.id}" title="Voltar a pedir aprovação para cada comando"><i class="pi pi-lock-open"></i> Aprovação automática ligada · desligar</button>` : ''}
+  $('#chat-head').innerHTML = `<div class="ttl-grp"><div class="ttl trunc" title="Clique para renomear" data-act="rename-chat" style="cursor:text">${esc(c.title)}</div>${iconBtn('rename-chat', 'pi-pencil', 'Renomear conversa')}${c.closed ? closedBadge() : ''}${usoBadge(c.uso)}<span class="badge tone-neutral" data-sess="${c.created}" title="Tempo desde que a conversa foi criada"><i class="pi pi-stopwatch"></i>sessão ${dur(Date.now() - c.created)}</span></div>
     ${c.closed ? '' : `<button class="btn sm" data-act="close-chat" data-v="1" title="Encerrar: guarda o histórico e bloqueia novas mensagens (dá para reabrir)"><i class="pi pi-check-circle"></i> Encerrar</button>`}
     ${iconBtn('del-chat', 'pi-trash', 'Apagar conversa', `data-id="${c.id}"`, 'danger')}`;
   $('#chat-ctx').innerHTML = it ? `<div class="ctx"><i class="pi pi-link"></i><div><b>${esc(it.title)}</b><div class="muted">${esc(it.section)}</div></div></div>` : '';
-  $('#edit').checked = c.edit && !c.plan; $('#edit').disabled = c.plan; $('#exec').checked = !!c.exec && !c.plan; $('#exec').disabled = c.plan;
-  $('#stop').hidden = !c.running; $('#send').disabled = c.running;
-  const key = JSON.stringify([c.id, c.messages.length, c.running, c.plan, c.edit, c.exec, c.autoAprovar, c.model, c.closed]);
+  // O estado de execução do agente NÃO bloqueia a entrada: a caixa e o Enviar ficam sempre disponíveis (a mensagem entra na fila do Claude Code).
+  $('#stop').hidden = !c.running;
+  pintarDD(c);
+  const rs = $('#runstate'); rs.hidden = !c.running; rs.dataset.desde = c.desde || '';
+  rs.innerHTML = c.running ? (c.ocupado ? '<i class="pi pi-spin pi-spinner"></i> Claude trabalhando há <span class="rt"></span> — você pode continuar escrevendo' : `<i class="pi pi-clock"></i> ${c.segundoPlano ? 'aguardando tarefa em segundo plano' : 'finalizando'} · <span class="rt"></span>`) : '';
+  tickTempo();
+  { const pb = $('#planbar'); pb.style.display = c.plan && !c.running && c.messages.some((m) => m.role === 'assistant') ? 'flex' : 'none'; pb.hidden = false; }
+  { // abas Conversa | Atividade (o contador conta as ações do chat)
+    const t = $('#chat-tabs'); if (t && !t.dataset.ok) { t.dataset.ok = '1'; t.innerHTML = `<button type="button" data-act="aba" data-v="conversa"><i class="pi pi-comments"></i> Conversa</button><button type="button" data-act="aba" data-v="atividade"><i class="pi pi-bolt"></i> Atividade <span class="n" id="tab-n" hidden></span></button>`; }
+    if (S.vivoChat !== c.id) { S.vivoChat = c.id; (S.vivo ||= {})[c.id] = (S.vivo[c.id] || []); }
+    $('#chat-tabs').hidden = false; aplicarAba(); pintarAtividade(c);
+  }
+  const key = JSON.stringify([c.id, c.messages.length, c.running, c.ocupado, c.segundoPlano, (c.fila || []).map((f) => f.id), c.modo, c.model, c.closed, c.doc]);
   if (S.chatKey === key) return; S.chatKey = key;
   const ta = $('#msg'); if (ta.dataset.cid !== c.id) { ta.value = S.draft[c.id] || ''; ta.dataset.cid = c.id; }
-  $('#chat-log').innerHTML = `<div class="note">${c.plan ? 'Modo plan: o Claude só lê e planeja, não altera arquivos.' : [c.doc && '📄 Modo documentação: o Claude só lê o projeto e cria arquivos em docs/, planning/, pendencias/ e CLAUDE.md. Alterar arquivo existente pede sua aprovação.', c.edit && '⚠ Edição de arquivos liberada.', c.exec && '⚠ Comandos liberados: cada um precisa da sua aprovação.'].filter(Boolean).join(' ') || 'Somente leitura'} · modelo ${mname(c.model)}</div>` +
-    c.messages.map((m) => bubble(m)).join('') + (c.running ? '<div class="msg a" id="live"><div class="av"><i class="pi pi-sparkles"></i></div><div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div></div>' : '');
+  const log = $('#chat-log'), perto = log.scrollHeight - log.scrollTop - log.clientHeight < 80 || log.dataset.cid !== c.id; // só rola sozinho se o dono já estava no fim
+  log.dataset.cid = c.id;
+  const aguardando = new Set((c.fila || []).map((f) => f.id)), pendentes = (c.fila || []).filter((f) => !f.persistido);
+  log.innerHTML = `<div class="note">${c.doc ? '📄 Modo documentação: o Claude só lê o projeto e cria arquivos em docs/, planning/, pendencias/ e CLAUDE.md. Alterar arquivo existente pede sua aprovação.' : esc(MODOS[c.modo]?.[1] || '')} · modelo ${mname(c.model)}</div>` +
+    c.messages.map((m) => bubble(m, false, aguardando.has(m.mid))).join('') +
+    (c.running ? `<div class="msg a" id="live"><div class="av"><i class="pi pi-sparkles"></i></div><div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div></div>` : '') +
+    pendentes.map((f) => `<div class="msg u pend"><div class="av">EU</div><div class="bubble">${esc(f.text)}<div class="meta"><i class="pi pi-clock"></i> na fila — o Claude lê no próximo passo</div></div></div>`).join('');
   if (c.running) pollStream(c.id);
-  $('#chat-log').scrollTop = 1e9;
+  if (perto) log.scrollTop = 1e9;
 }
-function bubble(m, ro) {
+function tickTempo() { // relógios do chat: tempo de sessão (cabeçalho) e há quanto tempo o Claude está trabalhando
+  document.querySelectorAll('[data-sess]').forEach((e) => { e.lastChild.textContent = 'sessão ' + dur(Date.now() - Number(e.dataset.sess)); });
+  const rs = $('#runstate'), rt = rs && $('.rt', rs); if (rt && rs.dataset.desde) rt.textContent = dur(Date.now() - Number(rs.dataset.desde));
+}
+setInterval(tickTempo, 1000);
+// ---- Menus de seleção (modo e modelo) na linha do Enviar: botão + lista com ícone, título e explicação de cada opção ----
+const ICONE_MODO = { perguntar: 'pi-question-circle', editar: 'pi-pencil', plan: 'pi-list-check', auto: 'pi-bolt', leitura: 'pi-eye' };
+const ddItens = (tipo) => (tipo === 'modo'
+  ? Object.entries(MODOS).map(([k, v]) => ({ v: k, t: v[0], d: v[1], i: ICONE_MODO[k] }))
+  : Object.entries(MODELOS).map(([k, m]) => ({ v: k, t: `${m.nome} ${m.versao}`, d: m.desc + (k === DEFAULT_MODEL ? ' · padrão' : ''), i: 'pi-microchip-ai' })));
+// O comportamento do menu (abrir, teclado, posição) vive em assets/combo.js (padrão do projeto); aqui só os dados do chat.
+function pintarDD(c) {
+  for (const [tipo, atual] of [['modelo', c.model], ['modo', c.modo]]) {
+    const box = $('#dd-' + tipo); if (!box) continue;
+    box.hidden = tipo === 'modo' && !!c.doc; // conversa de documentação tem modo fixo
+    box.className = 'dd dd-chat' + (tipo === 'modo' ? ' modo-' + atual : '');
+    Combo.montar(box, { tipo, itens: ddItens(tipo), atual, titulo: tipo === 'modo' ? 'Modo da conversa' : 'Modelo', abrir: 'cima', dir: true,
+      dica: tipo === 'modo' ? 'Modo da conversa (Shift+Tab alterna). Vale na hora, mesmo com o Claude trabalhando.' : 'Modelo (/model). Vale na hora.' });
+  }
+}
+document.addEventListener('combo:escolher', async (e) => { // escolha nos menus do chat (modo e modelo)
+  const { tipo, v } = e.detail;
+  if (tipo === 'modo') { await cfg({ modo: v }); toast('Modo: ' + MODOS[v][0]); }
+  else if (tipo === 'modelo') { await cfg({ model: v }); toast('Modelo: ' + MODELS[v]); }
+  $('#msg')?.focus();
+});
+
+// ---- Atividade: comandos e ferramentas do Claude ficam numa aba própria (só comando e status; a SAÍDA nunca é guardada) ----
+const ICONE_ACAO = { rodando: 'pi-spin pi-spinner', ok: 'pi-check-circle', erro: 'pi-times-circle', interrompida: 'pi-stop-circle' };
+const acoesDe = (c) => [...c.messages.flatMap((m) => (m.role === 'assistant' ? m.tools || [] : [])), ...((S.vivo?.[c.id]) || [])];
+function resumoAcoes(tools, vivo) { // uma linha discreta no chat; clicar abre a aba Atividade
+  if (!tools?.length) return '';
+  const n = (e) => tools.filter((t) => t.estado === e).length, rod = n('rodando'), err = n('erro'), int = n('interrompida');
+  const ultima = vivo && tools.at(-1);
+  const partes = [`${tools.length} ${tools.length === 1 ? 'ação' : 'ações'}`, rod ? `${rod} em andamento` : '', err ? `${err} com erro` : '', int ? `${int} interrompida${int > 1 ? 's' : ''}` : ''].filter(Boolean).join(' · ');
+  return `<button type="button" class="act-sum ${err ? 'erro' : ''}" data-act="aba" data-v="atividade" title="Ver a atividade completa"><i class="pi ${rod ? 'pi-spin pi-spinner' : err ? 'pi-exclamation-triangle' : 'pi-bolt'}"></i> ${partes}${ultima ? ` — <span>${esc(ultima.nome)} ${esc(short(ultima.resumo || '', 60))}</span>` : ''}<i class="pi pi-angle-right"></i></button>`;
+}
+const horaDe = (ms) => (ms ? new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '');
+const duracaoAcao = (ms) => (ms == null ? '' : ms < 1000 ? '<1 s' : dur(ms));
+function pintarAtividade(c) { // lista em ordem de tempo; só redesenha se algo mudou (preserva os itens abertos)
+  const box = $('#chat-act'); if (!box || !c) return;
+  const acoes = acoesDe(c), sig = c.id + JSON.stringify(acoes.map((a) => [a.ini, a.estado, a.ms]));
+  const tab = $('#tab-n'); if (tab) { tab.textContent = acoes.length || ''; tab.hidden = !acoes.length; }
+  if (box.dataset.sig === sig) return; box.dataset.sig = sig;
+  const abertos = new Set([...box.querySelectorAll('details[open]')].map((d) => d.dataset.i)), perto = box.scrollHeight - box.scrollTop - box.clientHeight < 80 || box.dataset.cid !== c.id;
+  box.dataset.cid = c.id;
+  box.innerHTML = acoes.length ? `<div class="note">Comandos e ferramentas que o Claude usou nesta conversa (só o comando e o resultado; a saída não é guardada).</div>` + acoes.map((a, i) => `<details class="act ${a.estado}" data-i="${i}" ${abertos.has(String(i)) ? 'open' : ''}><summary><i class="pi ${ICONE_ACAO[a.estado] || 'pi-circle'}"></i><b>${esc(a.nome)}</b><span class="ar">${esc(short(a.resumo || '', 90))}</span><span class="at">${horaDe(a.ini)}${a.ms != null ? ' · ' + duracaoAcao(a.ms) : ''}</span></summary><pre class="acode">${esc(a.detalhe || a.resumo || '(sem detalhe)')}</pre></details>`).join('')
+    : empty('pi-bolt', 'Nenhuma ação ainda. Quando o Claude rodar comandos ou ler e editar arquivos, eles aparecem aqui.');
+  if (perto) box.scrollTop = 1e9;
+}
+function aplicarAba() { // Conversa | Atividade: a caixa de mensagem e os cartões de aprovação ficam sempre visíveis
+  const at = S.aba === 'atividade';
+  $('#chat-log').hidden = at; $('#chat-act').hidden = !at;
+  document.querySelectorAll('#chat-tabs [data-v]').forEach((b) => b.classList.toggle('on', b.dataset.v === (at ? 'atividade' : 'conversa')));
+}
+function bubble(m, ro, aguardando) {
   const u = m.role === 'user';
-  return `<div class="msg ${u ? 'u' : 'a'} ${m.erro ? 'erro' : ''}"><div class="av">${u ? 'EU' : '<i class="pi pi-sparkles"></i>'}</div><div class="bubble">${u ? esc(m.text) : md(m.text)}${!u ? `<div class="meta">${mname(m.model)}${m.plan ? ' · plan' : ''}</div>` : ''}</div></div>`;
+  if (!u && !m.text && m.tools?.length) return `<div class="act-line">${resumoAcoes(m.tools)}</div>`; // resposta só com ações: sem bolha vazia
+  const estado = u && m.naoLida ? '<div class="meta err"><i class="pi pi-exclamation-triangle"></i> não chegou a ser lida pelo Claude — envie de novo</div>' : u && aguardando ? '<div class="meta"><i class="pi pi-clock"></i> enviada, ainda não lida</div>' : '';
+  return `<div class="msg ${u ? 'u' : 'a'} ${m.erro || m.naoLida ? 'erro' : ''}"><div class="av">${u ? 'EU' : '<i class="pi pi-sparkles"></i>'}</div><div class="bubble">${u ? esc(m.text) + estado : (m.text ? md(m.text) : '') + (m.tools?.length ? `<div class="act-wrap">${resumoAcoes(m.tools)}</div>` : '')}${!u ? `<div class="meta">${mname(m.modeloId || m.model)}${m.plan ? ' · plan' : ''}${m.interrompido ? ' · interrompida' : ''}</div>` : ''}</div></div>`;
 }
-function renderApprovals(list) {
-  const dlg = $('#adlg'), n = list.length;
-  document.title = (n ? `(${n}) Aprovação pendente · ` : '') + BASE_TITLE;
-  if (!n) { if (dlg.open) dlg.close(); dlg.dataset.id = ''; return; }
-  const a = list[0], prod = a.risco === 'producao', ex = a.explicacao || { resumo: a.resumo, passos: [], nivel: 'desconhecido' };
-  if (dlg.dataset.id === a.id && dlg.open) { const c = $('#adlg-n'); if (c) c.textContent = n > 1 ? `1 de ${n} pedidos` : ''; return; }
+// Plano do Claude (modo plan): card dentro do chat, com o plano completo e botões Sim/Não. Não usa o modal.
+function renderPlano(planos) {
+  const box = $('#plan-card'), a = planos.find((p) => S.sel?.kind === 'chat' && S.sel.id === p.chatId && route() === 'chat');
+  if (!a) {
+    if (box) { box.hidden = true; box.innerHTML = ''; box.dataset.id = ''; box.dataset.chat = ''; }
+    avisarOutras(planos); // plano de outra conversa: só avisa (não troca a conversa que você está lendo)
+    return;
+  }
+  if (!box) return;
+  if (box.dataset.id === a.id && !box.hidden) return;
+  box.dataset.id = a.id; box.dataset.chat = a.chatId; box.hidden = false;
+  box.innerHTML = `<div class="pc-hd"><i class="pi pi-list-check"></i><b>O Claude terminou o plano. Posso executar?</b></div>
+    <div class="pc-bd md">${a.plano ? md(a.plano) : '<em>(o Claude não enviou o texto do plano)</em>'}</div>
+    <div class="pc-ft">
+      <button class="btn pc-op" data-act="plano-nao" data-id="${a.id}"><i class="pi pi-replay"></i><span><b>Continuar planejando</b><em>Não aprovar; peça ajustes ao plano</em></span></button>
+      <button class="btn pc-op" data-act="plano-instrucao" data-id="${a.id}"><i class="pi pi-pencil"></i><span><b>Sair do planejamento e escrever uma instrução</b><em>Não executa agora; você diz ao agente o que fazer</em></span></button>
+      <button class="btn primary pc-op" data-act="plano-sim" data-id="${a.id}"><i class="pi pi-play"></i><span><b>Sair do planejamento e executar o plano</b><em>O agente começa a implementar</em></span></button></div>`;
+  box.scrollIntoView({ block: 'nearest' });
+}
+// Cada pedido pertence a UMA conversa e só aparece nela. Pedido de outra conversa não aparece aqui nem muda a tela: a lista lateral
+// marca "aguardando você" e um aviso (uma vez) diz de qual conversa é; o dono abre a conversa quando quiser.
+function avisarOutras(lista) {
+  const p = lista.find((x) => !S.avisados.has(x.id) && !(S.sel?.kind === 'chat' && S.sel.id === x.chatId && route() === 'chat'));
+  if (!p) return;
+  S.avisados.add(p.id);
+  toast(`“${short(p.chat || 'Conversa', 30)}” está aguardando você${p.tipo === 'plano' ? ' (plano)' : p.tipo === 'pergunta' ? ' (pergunta)' : ' (aprovação)'}`);
+}
+function renderApprovals(todos) {
+  S.aprov = todos; // guardado para redesenhar na hora ao trocar de conversa
+  const dela = (a) => S.sel?.kind === 'chat' && S.sel.id === a.chatId && route() === 'chat';
+  renderPlano(todos.filter((a) => a.tipo === 'plano'));
+  const list = todos.filter((a) => a.tipo !== 'plano' && a.tool !== 'ExitPlanMode'); // defesa: plano nunca vira modal genérico
+  document.title = (todos.length ? `(${todos.length}) Aprovação pendente · ` : '') + BASE_TITLE;
+  const noChat = list.filter(dela);
+  avisarOutras(list);
+  desenharAprov($('#ap-card'), noChat);
+  const marca = new Set(todos.map((a) => a.chatId)); // lista lateral: quais conversas aguardam
+  document.querySelectorAll('.cl-item[data-kind="chat"]').forEach((e) => { e.classList.toggle('aguarda', marca.has(e.dataset.id)); });
+}
+// Desenha o primeiro pedido de `lista` no cartão do chat. Não redesenha o mesmo pedido, para não perder o que o dono marcou.
+function desenharAprov(box, lista) {
+  if (!box) return;
+  const dlg = box, n = lista.length;
+  if (!n) { box.hidden = true; box.innerHTML = ''; box.dataset.id = ''; box.dataset.chat = ''; return; }
+  const a = lista[0], prod = a.risco === 'producao', ex = a.explicacao || { resumo: a.resumo, passos: [], nivel: 'desconhecido' };
+  dlg.dataset.chat = a.chatId;
+  if (dlg.dataset.id === a.id && !dlg.hidden) { const c = box.querySelector('.acount'); if (c) c.textContent = n > 1 ? `1 de ${n} pedidos` : ''; return; }
   dlg.dataset.id = a.id;
+  const abrir = () => { dlg.hidden = false; dlg.scrollIntoView({ block: 'nearest' }); };
+  const base = 'plan-card ap-card adlg', origem = '';
   if (a.tipo === 'pergunta') { // perguntas do Claude (modo plan): opções selecionáveis + sempre "Outro"
-    dlg.className = 'adlg'; dlg._perguntas = a.perguntas;
+    dlg.className = base; dlg._perguntas = a.perguntas;
     dlg.innerHTML = `<div class="ahd"><span class="aic"><i class="pi pi-question-circle"></i></span>
-        <div class="att"><b id="adlg-t">O Claude precisa de uma decisão sua</b><span class="asub">Escolha uma opção ou escreva a sua.<span id="adlg-n" class="acount">${n > 1 ? `1 de ${n} pedidos` : ''}</span></span></div></div>
+        <div class="att"><b id="adlg-t">O Claude precisa de uma decisão sua</b><span class="asub">Escolha uma opção ou escreva a sua.<span id="adlg-n" class="acount">${n > 1 ? `1 de ${n} pedidos` : ''}</span></span></div></div>${origem}
       <div class="abd aperg">${a.perguntas.map((q, i) => `<fieldset class="aq" data-q="${i}"><legend>${q.header ? `<span class="chip">${esc(q.header)}</span> ` : ''}${esc(q.question)}</legend>
         ${q.options.map((o) => `<label class="aopt"><input type="${q.multiSelect ? 'checkbox' : 'radio'}" name="aq${i}" value="${esc(o.label)}"><span><b>${esc(o.label)}</b>${o.description ? `<em>${esc(o.description)}</em>` : ''}</span></label>`).join('')}
         <label class="aopt"><input type="${q.multiSelect ? 'checkbox' : 'radio'}" name="aq${i}" value="" data-outro="1"><span><b>Outro</b><em>Escreva o que você quer</em></span></label>
@@ -372,14 +540,14 @@ function renderApprovals(list) {
       <div class="aft"><button class="btn" data-act="negar" data-id="${a.id}" title="O Claude segue com a melhor suposição"><i class="pi pi-times"></i> Dispensar</button><span class="sp"></span>
         <button class="btn primary" data-act="responder" data-id="${a.id}"><i class="pi pi-send"></i> Enviar respostas</button></div>`;
     dlg.onchange = (e) => { const f = e.target.closest('.aq'); if (!f) return; const o = f.querySelector('[data-outro]'), t = f.querySelector('.aoutro'); t.hidden = !o.checked; if (o.checked) t.focus(); };
-    if (!dlg.open) dlg.showModal();
+    abrir();
     return;
   }
   dlg.onchange = null;
-  dlg.className = 'adlg' + (prod ? ' prod' : '');
+  dlg.className = base + (prod ? ' prod' : '');
   dlg.innerHTML = `<div class="ahd"><span class="aic"><i class="pi ${prod ? 'pi-exclamation-triangle' : 'pi-shield'}"></i></span>
       <div class="att"><b id="adlg-t">${prod ? 'Atenção: este comando mexe com produção ou internet' : 'O Claude quer fazer isto'}</b>
-      <span class="asub">${esc(a.motivo || '')}<span id="adlg-n" class="acount">${n > 1 ? `1 de ${n} pedidos` : ''}</span></span></div></div>
+      <span class="asub">${esc(a.motivo || '')}<span id="adlg-n" class="acount">${n > 1 ? `1 de ${n} pedidos` : ''}</span></span></div></div>${origem}
     <div class="abd">
       <div class="aexp">${chipNivel(ex.nivel)}<p>${esc(ex.resumo)}</p>${ex.passos.length > 1 ? `<ol>${ex.passos.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}</div>
       <div class="aexact"><span>Comando exato que será executado <em>(a explicação acima é um resumo automático)</em></span><pre class="acode">${esc(a.resumo)}</pre></div>
@@ -388,8 +556,9 @@ function renderApprovals(list) {
       ${!prod && a.lembravel ? `<button class="btn" data-act="aprovar-lembrar" data-id="${a.id}" title="Libera só este comando exato, daqui para frente, neste projeto. Você revê em Permissões."><i class="pi pi-bookmark"></i> Aprovar e lembrar</button>` : ''}
       <button class="btn primary" data-act="aprovar" data-id="${a.id}" ${prod ? 'disabled' : ''}><i class="pi pi-check"></i> Aprovar só desta vez</button></div>
     ${prod ? '' : `<div class="afoot"><button class="link" data-act="aprovar-sessao" data-id="${a.id}" title="Libera os próximos comandos comuns desta conversa. Produção e comandos bloqueados continuam como estão.">Aprovar tudo desta conversa</button><span>·</span><span>“Lembrar” fica salvo no projeto (veja em <b>Permissões</b>).</span></div>`}`;
-  if (!dlg.open) dlg.showModal();
+  abrir();
 }
+function fecharAprov(box) { box.hidden = true; box.innerHTML = ''; box.dataset.id = ''; }
 let polling = null;
 function pollStream(id) {
   if (polling === id) return; polling = id;
@@ -397,10 +566,17 @@ function pollStream(id) {
     while (polling === id) {
       try {
         const s = await api('/api/chat/stream?id=' + id);
-        const live = $('#live .bubble');
-        if (live && S.sel?.id === id) { live.innerHTML = s.text ? md(s.text) : '<span class="typing"><i></i><i></i><i></i></span>'; $('#chat-log').scrollTop = 1e9; }
-        renderApprovals(s.pendentes || []);
-        if (s.done) { polling = null; S.chatKey = null; renderApprovals([]); await loadChats(); return; }
+        const live = $('#live .bubble'), log = $('#chat-log');
+        if (live && S.sel?.id === id) {
+          const perto = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+          live.innerHTML = (s.text ? md(s.text) : '') + (s.tools?.length ? `<div class="act-wrap">${resumoAcoes(s.tools, true)}</div>` : '') + (s.text || s.tools?.length ? '' : '<span class="typing"><i></i><i></i><i></i></span>');
+          if (perto) log.scrollTop = 1e9;
+        }
+        if (S.sel?.id === id) { (S.vivo ||= {})[id] = s.tools || []; pintarAtividade(curChat()); } // aba Atividade ao vivo
+        if (s.done) { polling = null; S.chatKey = null; await loadChats(); updateChat(); return; }
+        if (S.vistoRev?.[id] !== s.rev) { // mensagem gravada/consumida ou fila mudou: atualiza o histórico sem esperar o ciclo de 4 s
+          (S.vistoRev ||= {})[id] = s.rev; await loadChats(); S.chatKey = null; updateChat();
+        }
       } catch {}
       await new Promise((r) => setTimeout(r, 700));
     }
@@ -419,25 +595,33 @@ async function cfg(patch) {
   const c = curChat(); if (!c) return;
   Object.assign(c, await api('/api/chat/config', { id: c.id, ...patch })); S.chatKey = null; updateChat(); renderNav();
 }
-const ALIAS = { sonnet: 'sonnet', opus: 'opus', haiku: 'haiku', padrao: 'sonnet', 'padrão': 'sonnet', default: 'sonnet', '': 'sonnet' };
+const ALIAS = { fable: 'fable', sonnet: 'sonnet', opus: 'opus', haiku: 'haiku', padrao: 'sonnet', 'padrão': 'sonnet', default: 'sonnet', '': 'sonnet' };
 async function send(textArg) {
-  const c = curChat(); const ta = $('#msg'); let text = (textArg ?? ta.value).trim(); if (!c || !text || c.running) return;
+  // Nunca bloqueia por "o Claude está trabalhando": a mensagem entra na fila nativa do Claude Code (ver docs/business/conversas-claude.md).
+  const c = curChat(); const ta = $('#msg'); let text = (textArg ?? ta.value).trim(); if (!c || !text) return;
   let m;
+  if ((m = text.match(/^\/modo(?:\s+(\S*))?$/i))) {
+    const v = (m[1] || '').toLowerCase(), k = { plan: 'plan', planejamento: 'plan', perguntar: 'perguntar', ask: 'perguntar', editar: 'editar', normal: 'editar', auto: 'auto', automatico: 'auto', 'automático': 'auto', leitura: 'leitura' }[v];
+    if (!k) { toast('Modos: perguntar, editar, plan, auto, leitura'); return; }
+    ta.value = ''; S.draft[c.id] = ''; hint(); await cfg({ modo: k }); toast('Modo: ' + MODOS[k][0]); return;
+  }
   if ((m = text.match(/^\/model(?:\s+(\S*))?$/i))) {
     const v = (m[1] || '').toLowerCase();
-    if (!(v in ALIAS)) { toast('Modelos: sonnet (padrão), opus, haiku'); return; }
+    if (!(v in ALIAS)) { toast('Modelos: fable, opus, sonnet (padrão), haiku'); return; }
     ta.value = ''; S.draft[c.id] = ''; hint(); await cfg({ model: ALIAS[v] }); toast('Modelo: ' + MODELS[ALIAS[v]]); return;
   }
   if ((m = text.match(/^\/plan(?:\s+([\s\S]+))?$/i))) {
     if (!m[1]) { ta.value = ''; S.draft[c.id] = ''; hint(); await cfg({ plan: !c.plan }); toast(curChat().plan ? 'Plan ligado' : 'Plan desligado'); return; }
     await cfg({ plan: true }); text = m[1].trim();
-  } else if (text.startsWith('/')) { toast('Comandos disponíveis: /plan e /model'); return; }
+  } else if (text.startsWith('/')) { toast('Comandos disponíveis: /plan, /model e /modo'); return; }
   ta.value = ''; S.draft[c.id] = ''; hint();
-  try { Object.assign(c, await api('/api/chat/enviar', { id: c.id, text })); S.chatKey = null; updateChat(); await loadChats(); } catch (x) { toast(x.message); }
+  const mid = crypto.randomUUID(); // o servidor ignora o mesmo id repetido (reenvio de rede) e assim nada é duplicado
+  try { Object.assign(c, await api('/api/chat/enviar', { id: c.id, text, mid })); S.chatKey = null; updateChat(); await loadChats(); }
+  catch (x) { if (!ta.value) { ta.value = text; S.draft[c.id] = text; } toast(x.message); } // falhou: devolve o texto à caixa, nada se perde
 }
 function hint() {
   const v = $('#msg')?.value || '', h = $('#hint'); if (!h) return;
-  h.textContent = /^\/m/i.test(v) ? '/model sonnet · opus · haiku' : /^\/p/i.test(v) ? '/plan alterna o modo plan · /plan <texto> envia já em plan' : v.startsWith('/') ? 'Comandos: /plan  /model' : '';
+  h.textContent = /^\/mo[dD]/i.test(v) ? '/modo perguntar · editar · plan · auto · leitura' : /^\/m/i.test(v) ? '/model fable · opus · sonnet · haiku' : /^\/p/i.test(v) ? '/plan alterna o modo plan · /plan <texto> envia já em plan' : v.startsWith('/') ? 'Comandos: /plan  /model  /modo' : '';
 }
 
 // ---------- roteamento / render ----------
@@ -458,7 +642,6 @@ function render() {
 window.addEventListener('hashchange', () => { S.focus = null; render(); });
 
 // ---------- eventos ----------
-$('#adlg').addEventListener('cancel', (e) => e.preventDefault()); // Esc não fecha: exige Negar/Aprovar
 document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   const d = el.dataset, act = d.act;
@@ -487,28 +670,46 @@ document.addEventListener('click', async (e) => {
         if (d.v === '1' && !(await confirmar({ titulo: 'Encerrar esta conversa?', texto: 'O histórico fica guardado, mas não dá mais para enviar mensagens. Você pode reabrir depois.', ok: 'Encerrar', icone: 'pi-check-circle' }))) break;
         await cfg({ closed: d.v === '1' }); toast(d.v === '1' ? 'Conversa encerrada' : 'Conversa reaberta'); break;
       }
+      case 'aba': S.aba = d.v === 'atividade' ? 'atividade' : 'conversa'; aplicarAba(); pintarAtividade(curChat()); if (S.aba === 'conversa') { const l = $('#chat-log'); l.scrollTop = 1e9; } break;
       case 'plan': cfg({ plan: !curChat().plan }); break;
+      case 'plan-sair': await cfg({ plan: false }); toast('Modo planejamento desligado'); break;
+      case 'plan-continuar': {
+        const c = curChat(); if (!c || c.running) break;
+        await cfg({ plan: false });
+        await send('Plano aprovado. O modo planejamento foi desligado. Pode executar o plano agora.');
+        break;
+      }
       case 'send': send(); break;
       case 'aprovar': case 'negar': case 'aprovar-sessao': case 'aprovar-lembrar': {
-        $('#adlg').querySelectorAll('button').forEach((b) => { b.disabled = true; });
+        const box = el.closest('.adlg'); box.querySelectorAll('button').forEach((b) => { b.disabled = true; });
         try { await api('/api/aprovacao/decidir', { id: d.id, permitir: act !== 'negar', sessao: act === 'aprovar-sessao', lembrar: act === 'aprovar-lembrar' }); if (act === 'aprovar-sessao') toast('Comandos comuns aprovados até o fim desta conversa. Produção continua pedindo.'); if (act === 'aprovar-lembrar') toast('Aprovado e lembrado. Você pode rever em Permissões.'); }
         catch (x) { toast(x.message); }
-        $('#adlg').close(); $('#adlg').dataset.id = ''; loadChats();
+        fecharAprov(box); loadChats();
+        break;
+      }
+      case 'plano-sim': case 'plano-nao': case 'plano-instrucao': {
+        $('#plan-card').querySelectorAll('button').forEach((b) => { b.disabled = true; });
+        try { await api('/api/aprovacao/decidir', { id: d.id, permitir: act === 'plano-sim', sairPlano: act === 'plano-instrucao' }); }
+        catch (x) { toast(x.message); }
+        $('#plan-card').hidden = true; $('#plan-card').innerHTML = ''; $('#plan-card').dataset.id = '';
+        S.chatKey = null; await loadChats();
+        if (act === 'plano-instrucao') { toast('Saiu do planejamento. Escreva a instrução para o agente.'); setTimeout(() => $('#msg')?.focus(), 50); }
         break;
       }
       case 'responder': {
         const respostas = {}; let falta = false;
-        $('#adlg').querySelectorAll('.aq').forEach((f) => {
+        const box = el.closest('.adlg');
+        box.querySelectorAll('.aq').forEach((f) => {
           const vals = [];
           f.querySelectorAll('input[type=radio],input[type=checkbox]').forEach((i) => { if (!i.checked) return; const v = i.dataset.outro ? f.querySelector('.aoutro').value.trim() : i.value; if (v) vals.push(v); });
           respostas[f.dataset.q] = vals.join(', '); if (!vals.length) falta = true;
         });
         if (falta) { toast('Responda todas as perguntas (em “Outro”, escreva o texto).'); break; }
-        const porTexto = Object.fromEntries(($('#adlg')._perguntas || []).map((p, i) => [p.question, respostas[i]]));
-        $('#adlg').querySelectorAll('button').forEach((b) => { b.disabled = true; });
+        const porTexto = Object.fromEntries((box._perguntas || []).map((p, i) => [p.question, respostas[i]]));
+        box.querySelectorAll('button').forEach((b) => { b.disabled = true; });
         try { await api('/api/aprovacao/decidir', { id: d.id, permitir: true, respostas: porTexto }); }
         catch (x) { toast(x.message); }
-        $('#adlg').close(); $('#adlg').dataset.id = ''; loadChats();
+        fecharAprov(box); loadChats();
         break;
       }
       case 'revogar-sessao': await api('/api/aprovacao/sessao', { id: d.id }); toast('Aprovação automática desligada.'); await loadChats(); S.chatKey = null; updateChat(); break;
@@ -639,7 +840,7 @@ function renderDocumentacao() {
       <li><b>Não mexe no código</b>, não usa terminal e não lê senhas (.env, chaves). Só escreve em <code>docs/</code>, <code>planning/</code>, <code>pendencias/</code> e <code>CLAUDE.md</code>.</li>
       <li><b>Arquivos novos</b> são criados direto. Para <b>alterar um arquivo que já existe</b>, ele pede a sua aprovação.</li>
       <li><b>Tempo e uso:</b> de 5 a 30 minutos, conforme o tamanho do projeto, usando a sua assinatura do Claude.</li></ul></details>
-    <div class="doc-acoes"><label>Modelo de IA <select id="doc-modelo" class="sel sm"><option value="sonnet" ${D.modelo === 'sonnet' ? 'selected' : ''}>Sonnet (padrão, mais rápido)</option><option value="opus" ${D.modelo === 'opus' ? 'selected' : ''}>Opus (mais caprichado, usa mais)</option><option value="haiku" ${D.modelo === 'haiku' ? 'selected' : ''}>Haiku (rápido e simples)</option></select></label>
+    <div class="doc-acoes"><label>Modelo de IA <select id="doc-modelo" class="sel sm">${optsModelo(D.modelo || DEFAULT_MODEL)}</select></label>
       <span class="sp"></span>
       <button class="btn ${vazio ? 'primary' : ''}" data-act="doc-iniciar" data-modo="criar" ${rodando ? 'disabled' : ''}><i class="pi pi-plus"></i> ${vazio ? 'Montar a documentação' : 'Criar o que falta'}</button>
       ${vazio ? '' : `<button class="btn primary" data-act="doc-iniciar" data-modo="atualizar" ${rodando ? 'disabled' : ''}><i class="pi pi-refresh"></i> Conferir com o código e atualizar</button>`}</div></div></div>
@@ -703,7 +904,7 @@ function abrirAnexar() {
     <div class="abd"><ul class="bib-resumo">${sel.slice(0, 6).map((d) => `<li><b>${esc(d.titulo)}</b> <span class="muted small">${esc(d.areaNome)} · ${esc(d.colecaoNome)}</span></li>`).join('')}${sel.length > 6 ? `<li class="muted small">e mais ${sel.length - 6}…</li>` : ''}</ul>
       <label class="bib-opt"><input type="radio" name="bib-modo" value="adaptar" checked><span><b>Copiar e adaptar com o Claude <em>(recomendado)</em></b><span class="muted small">O Claude usa os documentos como base e escreve versões que descrevem <b>este projeto</b>, conferidas no código. Leva alguns minutos e usa a sua assinatura.</span></span></label>
       <label class="bib-opt"><input type="radio" name="bib-modo" value="copiar"><span><b>Só copiar</b><span class="muted small">Cria cópias exatas em <code>docs/</code>, na hora, com um aviso no topo. Podem citar nomes e regras do outro projeto: revise. Se já existir um documento com o mesmo nome, ele <b>não é substituído</b>: a cópia ganha o nome da origem.</span></span></label>
-      <div id="bib-modelo-box"><label class="bib-mod">Modelo de IA <select id="bib-modelo" class="sel sm"><option value="sonnet">Sonnet (padrão, mais rápido)</option><option value="opus">Opus (mais caprichado, usa mais)</option><option value="haiku">Haiku (rápido e simples)</option></select></label></div></div>
+      <div id="bib-modelo-box"><label class="bib-mod">Modelo de IA <select id="bib-modelo" class="sel sm">${optsModelo(DEFAULT_MODEL)}</select></label></div></div>
     <div class="aft"><span class="sp"></span><button class="btn" data-act="bib-fechar">Cancelar</button><button class="btn primary" data-act="bib-anexar-ok"><i class="pi pi-check"></i> Anexar</button></div>`;
   $('#bdlg').showModal();
 }
@@ -715,7 +916,7 @@ function abrirGeneralizar(todos) {
       <li>Cada um ganha um <b>título que diz o escopo</b> (por exemplo, “Autenticação e autorização em backends .NET multi-tenant por empresa”) e um parágrafo inicial dizendo a que tipo de projeto serve.</li>
       <li>O resultado vira <b>rascunho</b>: você vê, compara com o original e só então aceita. Nada entra na biblioteca sozinho.</li>
       <li>Leva de alguns minutos a algumas dezenas de minutos, conforme a quantidade, e usa a sua assinatura do Claude.</li></ul>
-      <label class="bib-mod">Modelo de IA <select id="bib-modelo" class="sel sm"><option value="sonnet">Sonnet (padrão)</option><option value="opus">Opus (mais caprichado, usa mais)</option><option value="haiku">Haiku (simples)</option></select></label></div>
+      <label class="bib-mod">Modelo de IA <select id="bib-modelo" class="sel sm">${optsModelo(DEFAULT_MODEL)}</select></label></div>
     <div class="aft"><span class="sp"></span><button class="btn" data-act="bib-fechar">Cancelar</button><button class="btn primary" data-act="gen-ok" data-fonte="biblioteca" data-ids="${esc(JSON.stringify(ids))}"><i class="pi pi-sparkles"></i> Começar</button></div>`;
   $('#bdlg').showModal();
 }
@@ -726,7 +927,7 @@ function abrirPublicar() {
       <div class="pub-lista">${meus.map((a) => `<div class="pub-area-bloco"><label class="pub-ah"><input type="checkbox" class="pub-area" value="${a.area}"> <b>${esc(a.nome)}</b> <span class="muted small">${a.arquivos.length} documento${a.arquivos.length === 1 ? '' : 's'}${a.area === 'data-platform' ? ' (costuma ser específico do produto)' : ''} · marcar todos</span></label>
         ${a.arquivos.map((f) => `<label class="pub-item"><input type="checkbox" class="pub-doc" data-area="${a.area}" value="${esc(a.area + '/' + f.rel)}"> ${esc(f.titulo)} <span class="muted small">${esc(f.rel)}</span><button type="button" class="link" data-act="file" data-p="${esc('docs/' + a.area + '/' + f.rel)}">ver</button></label>`).join('')}</div>`).join('')}</div>`
       : '<p class="muted">Este projeto ainda não tem documentação técnica em <code>docs/</code> (backend, frontend, infra, deploy, segurança ou dados). Monte-a na aba Documentação primeiro.</p>'}</div>
-    <div class="aft">${meus.length ? '<label class="bib-mod">Modelo de IA <select id="bib-modelo" class="sel sm"><option value="sonnet">Sonnet (padrão)</option><option value="opus">Opus (mais caprichado)</option><option value="haiku">Haiku (simples)</option></select></label>' : ''}<span class="sp"></span><button class="btn" data-act="bib-fechar">Cancelar</button>${meus.length ? '<button class="btn" data-act="bib-pub-ok"><i class="pi pi-upload"></i> Publicar como está</button><button class="btn primary" data-act="gen-ok" data-fonte="publicar"><i class="pi pi-sparkles"></i> Generalizar com o Claude</button>' : ''}</div>`;
+    <div class="aft">${meus.length ? '<label class="bib-mod">Modelo de IA <select id="bib-modelo" class="sel sm">' + optsModelo(DEFAULT_MODEL) + '</select></label>' : ''}<span class="sp"></span><button class="btn" data-act="bib-fechar">Cancelar</button>${meus.length ? '<button class="btn" data-act="bib-pub-ok"><i class="pi pi-upload"></i> Publicar como está</button><button class="btn primary" data-act="gen-ok" data-fonte="publicar"><i class="pi pi-sparkles"></i> Generalizar com o Claude</button>' : ''}</div>`;
   $('#bdlg').showModal();
 }
 const NIVEL = { leitura: ['Só consulta', 'lv-ok'], altera: ['Altera arquivos', 'lv-warn'], rede: ['Usa a internet', 'lv-warn'], servidor: ['Mexe em servidor/produção', 'lv-bad'], desconhecido: ['Não reconhecido', 'lv-warn'] };
@@ -786,16 +987,19 @@ document.addEventListener('change', async (e) => {
       case 'hideenc': S.f.hideEnc = el.checked; updateChat(); break;
       case 'status': await api('/api/estado', { id: d.id, status: el.value, nota: st(d.id).nota || '' }); await loadPend(); render(); break;
       case 'link': await api('/api/sessoes/meta', { id: d.id, itemId: el.value }); await loadSess(); render(); break;
-      case 'model': cfg({ model: el.value }); break;
     }
   } catch (x) { toast(x.message); }
 });
 document.addEventListener('input', (e) => {
   if (e.target.id === 'msg') { const c = curChat(); if (c) S.draft[c.id] = e.target.value; hint(); }
 });
-document.addEventListener('change', (e) => { if (e.target.id === 'edit') cfg({ edit: e.target.checked }); if (e.target.id === 'exec') cfg({ exec: e.target.checked }); if (e.target.id === 'aprov-ok') { const b = $('#adlg [data-act="aprovar"]'); if (b) b.disabled = !e.target.checked; } });
+document.addEventListener('change', (e) => { if (e.target.id === 'edit') cfg({ edit: e.target.checked }); if (e.target.id === 'exec') cfg({ exec: e.target.checked }); if (e.target.id === 'aprov-ok') { const b = e.target.closest('.adlg')?.querySelector('[data-act="aprovar"]'); if (b) b.disabled = !e.target.checked; } });
 document.addEventListener('keydown', (e) => {
   if (e.target.id === 'msg' && e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send();
+  if (e.target.id === 'msg' && e.key === 'Tab' && e.shiftKey) { // Shift+Tab alterna o modo, como no terminal
+    e.preventDefault(); const c = curChat(); if (!c || c.doc) return;
+    const ks = Object.keys(MODOS); cfg({ modo: ks[(ks.indexOf(c.modo) + 1) % ks.length] }).then(() => toast('Modo: ' + MODOS[curChat()?.modo]?.[0]));
+  }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#gsearch').focus(); }
   if (e.key === 'Escape') $('#gsearch').blur();
 });
@@ -831,15 +1035,16 @@ let sigs = {}, lastDocs = null;
 async function refresh(force) {
   try {
     const v = await api('/api/versao');
-    const [p, s, c, f] = await Promise.all([api('/api/pendencias'), api('/api/sessoes'), api('/api/chats'), api('/api/arquivos')]);
+    const [p, s, c, f, cons] = await Promise.all([api('/api/pendencias'), api('/api/sessoes'), api('/api/chats'), api('/api/arquivos'), api('/api/consumo').catch(() => null)]);
     const next = {
       pend: JSON.stringify([p.sections.map((x) => x.items.map((i) => i.id + i.raw)), p.state]),
-      sess: JSON.stringify(s.terminal.map((x) => [x.id, x.mtime, x.apelido, x.itemId, x.oculto])),
-      chats: JSON.stringify(c.chats.map((x) => [x.id, x.updated, x.running, x.title, x.model, x.plan, x.edit, x.closed, x.messages.length])),
+      sess: JSON.stringify(s.terminal.map((x) => [x.id, x.mtime, x.apelido, x.itemId, x.oculto, usoNovo(x.uso)])),
+      chats: JSON.stringify(c.chats.map((x) => [x.id, x.updated, x.running, x.title, x.model, x.plan, x.modo, x.ocupado, (x.fila || []).length, x.pendentes, x.closed, x.messages.length, usoNovo(x.uso)])),
+      cons: JSON.stringify(cons ? [cons.hoje, cons.semana] : null),
       files: JSON.stringify(f.files.map((x) => x.path + x.mtime)),
     };
     const changed = force || Object.keys(next).some((k) => sigs[k] !== next[k]);
-    S.sections = p.sections; S.state = p.state; S.term = s.terminal; S.chats = c.chats; S.files = f.files;
+    S.sections = p.sections; S.state = p.state; S.term = s.terminal; S.chats = c.chats; S.files = f.files; S.consumo = cons;
     if (S.sel?.kind === 'chat' && !S.chats.find((x) => x.id === S.sel.id)) S.sel = null;
     if (S.sel?.kind === 'term') { const t = S.term.find((x) => x.id === S.sel.id); if (t && S.tx[t.id] && S.tx[t.id].mtime !== t.mtime) { delete S.tx[t.id]; openTerm(t.id); } else if (t && S.tx[t.id]) S.tx[t.id].mtime = t.mtime; }
     if (lastDocs && v.sig !== lastDocs) toast('Docs/planning/pendências mudaram em disco — atualizado');
@@ -849,6 +1054,10 @@ async function refresh(force) {
     if (force) toast('Atualizado');
   } catch (x) { $('#synctxt').textContent = 'sem conexão'; }
 }
+// Pedidos de aprovação de QUALQUER conversa/tela: consulta global (antes só a conversa aberta era consultada)
+let apBusy = false;
+async function pollAprovacoes() { if (apBusy) return; apBusy = true; try { renderApprovals((await api('/api/aprovacoes')).pendentes || []); } catch (e) { console.error('pollAprovacoes:', e); } apBusy = false; }
+setInterval(pollAprovacoes, 1500);
 setInterval(refresh, 4000); document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 setInterval(() => { if (route() !== 'chat' && !document.querySelector('dialog[open]')) render(); }, 60000); // mantém “há X min” fresco
 refresh(true).then(() => { if (route() === 'chat' && !S.sel && S.chats[0]) { S.sel = { kind: 'chat', id: S.chats[0].id }; render(); } });

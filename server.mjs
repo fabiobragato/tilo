@@ -11,6 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { avaliar, avaliarArquivo, compilar, descrever, descreverFabrica, FERRAMENTAS_ARQUIVO, listarPacotes, validarConfig } from './politica.mjs';
 import * as projetos from './projetos.mjs';
 import * as catalogo from './catalogo.mjs';
+import { consumoRecente, pastaDeTranscripts, usoDoArquivo } from './consumo.mjs';
+import { Fluxo, linhaInterrupcao, linhaModelo, linhaModo, linhaUsuario } from './fluxo.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const als = new AsyncLocalStorage(); // projeto da requisição em curso
@@ -27,7 +29,9 @@ const TOKEN = (() => {
   return t;
 })();
 const MAX_BODY = 200_000;
-const MODELS = ['sonnet', 'opus', 'haiku'];
+// Chave gravada na conversa -> id completo enviado ao claude (a versão fica explícita; para atualizar uma versão, troque só aqui e em MODELOS de assets/app.js).
+const MODEL_IDS = { fable: 'claude-fable-5-1', opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' };
+const MODELS = Object.keys(MODEL_IDS);
 const DEFAULT_MODEL = 'sonnet'; // padrão do painel (explícito, sempre enviado ao claude)
 
 // ---------- parser do README ----------
@@ -179,14 +183,14 @@ function terminalSessions() {
     try {
       if (fs.statSync(abs).mtimeMs < lim || chatIds.has(path.basename(f, '.jsonl'))) continue;
       const i = sessionInfo(abs);
-      out.push({ ...i, ...(meta[i.id] || {}) });
+      out.push({ ...i, uso: usoDoArquivo(abs)?.total || null, ...(meta[i.id] || {}) });
     } catch {}
   }
   return out.sort((a, b) => b.mtime - a.mtime).slice(0, 40);
 }
 
 // ---------- conversas do painel (servidor é dono; sobrevivem a reload) ----------
-const jobs = new Map(); // chatId -> { buf, done, child }
+const jobs = new Map(); // chatId -> { chatId, proj, child, fluxo, done, closing, depois, ... } (ver startJob)
 const SYSTEM = [
   'Você está ajudando o DONO do projeto a gerenciar as pendências dele (painel em pendencias/README.md), dentro do Tilo.',
   'Responda em português, linguagem simples e explicativa, sem jargão desnecessário.',
@@ -198,24 +202,63 @@ const SYSTEM = [
 function gerarSettings() {
   const base = JSON.parse(fs.readFileSync(path.join(HERE, 'claude-settings.json'), 'utf8'));
   const pasta = path.basename(HERE);
-  const arquivos = ['server.mjs', 'aprovador-mcp.mjs', 'politica.mjs', 'catalogo.mjs', 'projetos.mjs', 'claude-settings.json', 'projetos.json'];
+  const arquivos = ['server.mjs', 'aprovador-mcp.mjs', 'politica.mjs', 'catalogo.mjs', 'projetos.mjs', 'fluxo.mjs', 'consumo.mjs', 'claude-settings.json', 'projetos.json',
+    'index.html', 'inicio.html', 'package.json', 'iniciar.cmd', 'politica.test.mjs', 'catalogo.test.mjs', 'projetos.test.mjs', 'fluxo.test.mjs', 'padroes.test.mjs', 'consumo.test.mjs', 'server.test.mjs'];
   base.permissions.deny.push(`Read(**/${pasta}/.token)`, `Read(**/${pasta}/projetos.json)`,
-    ...['assets', 'modelos', 'scripts'].flatMap((d) => [`Edit(**/${pasta}/${d}/**)`, `Write(**/${pasta}/${d}/**)`]),
+    ...['assets', 'modelos', 'scripts', 'dados', 'catalogo', 'logos'].flatMap((d) => [`Edit(**/${pasta}/${d}/**)`, `Write(**/${pasta}/${d}/**)`]),
     ...arquivos.flatMap((f) => [`Edit(**/${pasta}/${f})`, `Write(**/${pasta}/${f})`]));
   const f = path.join(os.tmpdir(), 'tilo-settings.json');
   fs.writeFileSync(f, JSON.stringify(base));
   return f;
 }
 const SETTINGS_FILE = gerarSettings();
+// Caveman (plugin que deixa as respostas curtas e economiza tokens). As conversas abrem com --setting-sources project, que ignora os plugins do usuário;
+// por isso o plugin já instalado (~/.claude/plugins/installed_plugins.json) é carregado só nas conversas do Tilo com --plugin-dir.
+// TILO_CAVEMAN=off desliga; TILO_CAVEMAN_NIVEL = lite (padrão) | full | ultra. Se o plugin não estiver instalado, nada muda.
+const CAVEMAN_NIVEIS = ['lite', 'full', 'ultra'];
+const CAVEMAN_NIVEL = CAVEMAN_NIVEIS.includes(String(process.env.TILO_CAVEMAN_NIVEL || '').toLowerCase()) ? String(process.env.TILO_CAVEMAN_NIVEL).toLowerCase() : 'lite';
+const CAVEMAN_DIR = (() => {
+  if (String(process.env.TILO_CAVEMAN || '').toLowerCase() === 'off') return '';
+  try {
+    const casa = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+    const inst = JSON.parse(fs.readFileSync(path.join(casa, 'plugins', 'installed_plugins.json'), 'utf8')).plugins?.['caveman@caveman'] || [];
+    for (const i of inst) { if (i?.installPath && fs.existsSync(path.join(i.installPath, '.claude-plugin', 'plugin.json'))) return i.installPath; }
+  } catch {}
+  return '';
+})();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // ---------- aprovações de comandos (o Claude pede; o dono decide na UI) ----------
 const APPROVAL_TIMEOUT = 5 * 60_000;
 const approvals = new Map(); // id -> { id, chatId, tool, resumo, risco, motivo, criado, resolve, timer }
-function audit(proj, o) { try { fs.appendFileSync(proj.AUDIT, JSON.stringify({ ts: new Date().toISOString(), ...o }) + '\n'); } catch {} } // dados/<projeto>/auditoria.jsonl
-const autoSessao = new Set(); // chats com "aprovar todos da sessão" (só em memória; some ao reiniciar o servidor). Produção e política 'negar' nunca entram.
+const AUDIT_MAX = 5_000_000; // acima disso o arquivo é arquivado (auditoria-<data>.jsonl) e um novo é iniciado
+const auditAvisado = new Set();
+function audit(proj, o) { // dados/<projeto>/auditoria.jsonl
+  try {
+    try { if (fs.statSync(proj.AUDIT).size > AUDIT_MAX) fs.renameSync(proj.AUDIT, proj.AUDIT.replace(/\.jsonl$/, `-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`)); } catch (e) { if (e.code !== 'ENOENT') throw e; }
+    fs.appendFileSync(proj.AUDIT, JSON.stringify({ ts: new Date().toISOString(), ...o }) + '\n');
+  } catch (e) {
+    if (!auditAvisado.has(proj.id)) { auditAvisado.add(proj.id); console.error(`[tilo] AVISO: não foi possível gravar a auditoria de "${proj.id}" (${e.message}). A ação seguiu sem registro.`); }
+  }
+}
+const autoSessao = new Set(); // chats em modo "automático" (só em memória; some ao reiniciar o servidor). Produção e política 'negar' nunca entram.
+// Modos da conversa (um só seletor, como o Shift+Tab do terminal). Valem na hora, inclusive com o Claude trabalhando:
+//  perguntar = toda edição e todo comando pedem aprovação · editar = edita arquivos do projeto sem perguntar, comandos pedem (padrão) ·
+//  plan = só lê e planeja · auto = tudo comum sem perguntar (produção sempre pergunta; só em memória) · leitura = nada de editar nem rodar comandos.
+const MODOS = ['perguntar', 'editar', 'plan', 'auto', 'leitura'];
+const MODOS_BASE = ['perguntar', 'editar', 'leitura']; // o que fica gravado; plan e auto são estados por cima deles
+const FERRAMENTAS_EDICAO = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
+function modoBase(c) { // conversas antigas guardavam edit/exec
+  if (MODOS_BASE.includes(c.modo)) return c.modo;
+  if (c.edit === false) return c.exec === false ? 'leitura' : 'perguntar';
+  return 'editar';
+}
+const modoEfetivo = (c) => (c.plan && !c.doc ? 'plan' : autoSessao.has(c.id) ? 'auto' : modoBase(c));
+const dentroDe = (raiz, f) => { if (!f || typeof f !== 'string') return false; const r = path.relative(path.resolve(raiz), path.resolve(raiz, f)); return !!r && !r.startsWith('..') && !path.isAbsolute(r); };
 const pendingOf = (chatId) => [...approvals.values()].filter((a) => a.chatId === chatId);
-const approvalView = (a) => ({ id: a.id, tool: a.tool, resumo: a.resumo, risco: a.risco, motivo: a.motivo, criado: a.criado, explicacao: a.explicacao, lembravel: a.lembravel, tipo: a.tipo, perguntas: a.perguntas });
+// 'chat' e 'projeto' dizem ao dono de QUAL conversa é o pedido (ele pode estar olhando outra tela/conversa quando o pedido chega)
+function origemDe(a) { const c = readJson(a.proj.CHATS, { chats: {} }).chats[a.chatId]; return { chatId: a.chatId, chat: c?.title || 'Conversa', projeto: a.proj.nome || a.proj.id }; }
+const approvalView = (a) => ({ ...origemDe(a), id: a.id, tool: a.tool, resumo: a.resumo, risco: a.risco, motivo: a.motivo, criado: a.criado, explicacao: a.explicacao, lembravel: a.lembravel, tipo: a.tipo, perguntas: a.perguntas, plano: a.plano });
 function settle(a, behavior, message, quem, extra) {
   if (!approvals.delete(a.id)) return;
   clearTimeout(a.timer);
@@ -237,6 +280,17 @@ function askPergunta(chatId, input, perguntas, signal) {
     signal?.addEventListener('abort', () => settle(a, 'deny', 'Pedido cancelado.', 'sistema'));
   });
 }
+// Plano do modo plan (ferramenta ExitPlanMode): a UI mostra o plano completo dentro do chat, com botões Sim/Não (não é o modal de comandos).
+function askPlano(chatId, input, signal) {
+  return new Promise((resolve) => {
+    const plano = str(input?.plan, 60000);
+    const a = { id: crypto.randomUUID(), proj: P(), chatId, tool: 'ExitPlanMode', resumo: plano.slice(0, 4000), risco: 'normal', motivo: 'O Claude terminou o plano e pede sua decisão',
+      criado: Date.now(), resolve, tipo: 'plano', plano, input, lembravel: false };
+    a.timer = setTimeout(() => settle(a, 'deny', 'Sem resposta em 5 minutos; o plano não foi aprovado.', 'timeout'), APPROVAL_TIMEOUT);
+    approvals.set(a.id, a);
+    signal?.addEventListener('abort', () => settle(a, 'deny', 'Pedido cancelado.', 'sistema'));
+  });
+}
 function denyAll(chatId, message) { for (const a of pendingOf(chatId)) settle(a, 'deny', message, 'sistema'); }
 function askApproval(chatId, tool, input, v, signal) {
   return new Promise((resolve) => {
@@ -251,54 +305,154 @@ function askApproval(chatId, tool, input, v, signal) {
 
 const loadChats = () => readJson(P().CHATS, { chats: {} });
 function saveChat(c) { const d = loadChats(); d.chats[c.id] = c; writeJson(P().CHATS, d); }
-function chatView(c) { return { ...c, model: MODELS.includes(c.model) ? c.model : DEFAULT_MODEL, running: !!jobs.get(c.id) && !jobs.get(c.id).done, pendentes: pendingOf(c.id).length, autoAprovar: autoSessao.has(c.id) }; }
+// tokens da conversa, lidos do transcript do Claude Code (generalização roda em outra pasta, então o transcript fica em outra pasta)
+const usoDaConversa = (c) => usoDoArquivo(path.join(c.gen ? pastaDeTranscripts(c.gen.dir) : P().TERM_DIR, c.id + '.jsonl'))?.total || null;
+function chatView(c) { return { ...c, uso: usoDaConversa(c), model: MODELS.includes(c.model) ? c.model : DEFAULT_MODEL, ...estadoDoJob(c.id), modo: modoEfetivo(c), pendentes: pendingOf(c.id).length, autoAprovar: autoSessao.has(c.id) }; }
 
-function startJob(chat, text) {
+// Uma conversa = UM processo `claude` em modo stream-json enquanto houver trabalho (como o terminal): mensagens novas vão pelo
+// stdin a qualquer momento e o próprio Claude Code as enfileira e entrega entre dois passos da tarefa. O painel nunca roda dois
+// processos para a mesma conversa. Detalhes em docs/backend/ai-architecture.md.
+const FILA_MAX = 20;
+const IDLE_FILA_MS = 15_000; // o claude terminou o turno mas não leu uma mensagem da fila: assume que ela não será lida
+const IDLE_BG_MS = 30 * 60_000; // limite de espera por tarefas em segundo plano depois que o claude ficou ocioso
+const INTERROMPER_MS = 10_000; // se o claude não parar sozinho após o pedido de interrupção, o processo é encerrado
+const midsVistos = new Map(); // chatId -> Set de ids de mensagem já aceitos (envio repetido não duplica)
+const jobAtivo = (id) => { const j = jobs.get(id); return j && !j.done ? j : null; };
+const jsonl = (o) => JSON.stringify(o) + '\n';
+function matar(job) { job.morto = true; // no Windows `claude` roda dentro de um cmd.exe (shell:true): child.kill() deixaria o claude vivo; taskkill /T leva a árvore inteira
+  try {
+    if (process.platform === 'win32' && job.child.pid) spawn('taskkill', ['/pid', String(job.child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }).on('error', () => {});
+    else job.child.kill();
+  } catch {}
+}
+function gravarNoChat(proj, chatId, fn) { // aplica uma alteração ao chat salvo (lê e grava; o servidor é o dono do histórico)
+  als.run(proj, () => { const c = loadChats().chats[chatId]; if (c) { fn(c); c.updated = Date.now(); saveChat(c); } });
+}
+function fecharJob(job) { // não há mais o que esperar: fecha o stdin e o claude encerra sozinho
+  if (job.done || job.closing) return;
+  job.closing = true; clearTimeout(job.tIdle);
+  try { job.child.stdin.end(); } catch {}
+}
+function avaliarFechamento(job, apos = 0) { // chamado quando o claude fica ocioso: fecha se não há nada pendente
+  clearTimeout(job.tIdle);
+  if (job.done || job.closing || job.fluxo.ocupado) return;
+  const f = job.fluxo;
+  if (f.podeFechar()) { if (apos) job.tIdle = setTimeout(() => { if (!job.fluxo.ocupado) fecharJob(job); }, apos); else fecharJob(job); return; }
+  job.tIdle = setTimeout(() => { if (!job.fluxo.ocupado) fecharJob(job); }, f.fila.length ? IDLE_FILA_MS : IDLE_BG_MS);
+}
+function interromper(job) { // Parar: o mesmo que Esc no terminal (a sessão continua e aceita novas instruções)
+  denyAll(job.chatId, 'Cancelado pelo dono.');
+  if (!job.fluxo.ocupado) { matar(job); return 'encerrado'; } // só esperava tarefa em segundo plano: encerra o processo
+  try { job.child.stdin.write(linhaInterrupcao(crypto.randomUUID())); } catch {}
+  clearTimeout(job.tInt);
+  job.tInt = setTimeout(() => { if (!job.done && job.fluxo.ocupado) matar(job); }, INTERROMPER_MS); // não parou: encerra de vez
+  return 'interrompido';
+}
+// Entrega uma mensagem do dono à conversa: se há processo vivo, vai direto pelo stdin (fila nativa do Claude Code);
+// se o processo está fechando, espera ele terminar e abre outro (nunca dois ao mesmo tempo).
+function entregar(chat, msg) {
+  const j = jobAtivo(chat.id);
+  if (!j) { startJob(chat, msg.text, { mid: msg.id, persistido: msg.persistido }); return; }
+  if (j.closing) { j.depois.push(msg); return; }
+  j.fluxo.enfileirar(msg);
+  clearTimeout(j.tIdle);
+  try { j.child.stdin.write(linhaUsuario(msg.text)); } catch {}
+}
+function salvarPerdidas(proj, chatId, perdidas) { // mensagens que o claude nunca leu: ficam no histórico marcadas, para o dono reenviar
+  if (!perdidas.length) return;
+  gravarNoChat(proj, chatId, (c) => { for (const m of perdidas) if (!m.persistido) c.messages.push({ role: 'user', text: m.text, ts: m.ts, mid: m.id, naoLida: true }); });
+}
+
+// Estado de execução do agente (running/ocupado/segundoPlano) é separado da disponibilidade do campo de mensagem: a caixa nunca é bloqueada por isso.
+function estadoDoJob(id) {
+  const j = jobAtivo(id);
+  if (!j || j.proj.id !== P().id) return { running: false, desde: 0, ocupado: false, segundoPlano: 0, fila: [] };
+  const f = j.fluxo;
+  return { running: true, desde: j.inicio, ocupado: f.ocupado, segundoPlano: f.bg, fila: [...f.fila, ...j.depois].map((m) => ({ id: m.id, text: m.persistido ? '' : m.text, ts: m.ts, persistido: !!m.persistido })) };
+}
+
+function startJob(chat, text, { mid = crypto.randomUUID(), persistido = true } = {}) {
   const proj = P();
   const first = !chat.started;
   let prompt = text;
   if (first && chat.contexto) prompt = `Pendência em foco:\n${chat.contexto}\n\nPergunta do dono do projeto:\n${text}`;
   const doc = !!chat.doc; // conversa de documentação: sem terminal; Write/Edit passam pela política de arquivos (avaliarArquivo)
-  const canEdit = !doc && chat.edit && !chat.plan, canExec = !doc && chat.exec && !chat.plan;
-  const tools = canEdit ? 'Read,Grep,Glob,Edit,Write' : 'Read,Grep,Glob';
-  // Tudo que não está em --allowedTools cai no aprovador (UI + política). Ferramentas desligadas são bloqueadas de vez.
-  const bloqueadas = [...(canEdit || doc ? [] : ['Edit', 'Write']), ...(canExec ? [] : ['Bash', 'PowerShell'])];
+  // Só leitura é liberada direto. Edição e comandos caem SEMPRE no aprovador, que decide pelo modo ATUAL da conversa
+  // (/api/aprovacao/pedir -> modoEfetivo): trocar de modo no seletor vale na hora, mesmo no meio de uma tarefa.
+  // No modo plan o próprio Claude (--permission-mode plan) só lê e planeja; aprovado o plano (ExitPlanMode), a mesma execução segue.
+  const tools = 'Read,Grep,Glob';
+  const bloqueadas = doc ? ['Bash', 'PowerShell'] : []; // conversa de documentação não tem terminal
   const mcpCfg = path.join(os.tmpdir(), `tilo-mcp-${chat.id}.json`);
   fs.writeFileSync(mcpCfg, JSON.stringify({ mcpServers: { tilo: { command: process.execPath, args: [path.join(HERE, 'aprovador-mcp.mjs')], env: { TILO_CHAT_ID: chat.id, TILO_PROJECT: proj.id, TILO_PORT: String(PORT) } } } }));
-  const args = ['-p', '--output-format', 'text', '--allowedTools', tools, '--setting-sources', 'project', '--settings', SETTINGS_FILE,
+  // stream-json nos dois sentidos: o painel pode mandar mensagens durante a execução e recebe os eventos (texto parcial, ferramentas, fim de turno).
+  const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--replay-user-messages',
+    '--allowedTools', tools, '--setting-sources', 'project', '--settings', SETTINGS_FILE,
     '--mcp-config', mcpCfg, '--strict-mcp-config', '--permission-prompt-tool', 'mcp__tilo__approve', '--append-system-prompt', JSON.stringify(SYSTEM)];
   if (bloqueadas.length) args.push('--disallowedTools', bloqueadas.join(','));
+  if (CAVEMAN_DIR) args.push('--plugin-dir', `"${CAVEMAN_DIR}"`);
   const dirsRef = chat.gen ? chat.gen.leitura : catalogo.pastasDeLeitura(chat.referencias || []); // documentos da biblioteca: leitura liberada, escrita bloqueada (settings)
   if (dirsRef.length) args.push('--add-dir', ...dirsRef.map((d) => `"${d}"`));
   if (chat.plan && !doc) args.push('--permission-mode', 'plan');
-  args.push('--model', MODELS.includes(chat.model) ? chat.model : DEFAULT_MODEL); // validado contra MODELS
+  const modelo = MODELS.includes(chat.model) ? chat.model : DEFAULT_MODEL, emPlan = !!chat.plan;
+  args.push('--model', MODEL_IDS[modelo]); // validado contra MODELS
   args.push(first ? '--session-id' : '--resume', chat.id);
   // shell:true porque no Windows `claude` é .cmd. Nenhum texto livre do usuário vai em args (vai por stdin).
   // Chaves de API vazias de propósito: nunca usar API paga, só a assinatura (login do Claude Code).
   const child = spawn('claude', args, { cwd: chat.gen ? chat.gen.dir : proj.ROOT, // generalização: pasta de rascunhos isolada; demais: raiz do projeto
-    shell: true, windowsHide: true, env: { ...process.env, ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '' } });
-  const job = { buf: '', done: false, child, err: '' };
+    shell: true, windowsHide: true, env: { ...process.env, ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '', ...(CAVEMAN_DIR && { CAVEMAN_DEFAULT_MODE: CAVEMAN_NIVEL }) } });
+  const fluxo = new Fluxo({
+    onMensagem: (m) => gravarNoChat(proj, chat.id, (c) => {
+      if (m.role === 'user') c.messages.push({ role: 'user', text: m.text, ts: m.ts, mid: m.id, model: modelo, plan: emPlan });
+      else c.messages.push({ role: 'assistant', text: m.text || (m.tools?.length ? '' : '(sem resposta)'), ts: Date.now(), model: modelo, plan: emPlan, ...(m.modelo && { modeloId: m.modelo }), ...(m.tools?.length && { tools: m.tools }), ...(m.erro && { erro: true }), ...(m.interrompido && { interrompido: true }) });
+      if (!c.started && fluxo.consumidas > 0) c.started = true; // a sessão já existe no disco: as próximas mensagens usam --resume
+    }),
+  });
+  const job = { chatId: chat.id, proj, child, fluxo, inicio: Date.now(), done: false, closing: false, err: '', depois: [], tIdle: null, tInt: null };
   jobs.set(chat.id, job);
-  child.stdout.on('data', (d) => { job.buf += d; });
-  child.stderr.on('data', (d) => { job.err += d; });
+  fluxo.enfileirar({ id: mid, text: prompt, persistido });
+  child.stdin.on('error', () => {}); // processo já saiu: o close trata o resto
+  child.stdin.write(linhaUsuario(prompt));
+  let linhas = '';
+  child.stdout.on('data', (d) => {
+    linhas += d;
+    let i;
+    while ((i = linhas.indexOf('\n')) >= 0) {
+      const l = linhas.slice(0, i).trim(); linhas = linhas.slice(i + 1);
+      if (!l.startsWith('{')) continue;
+      let e; try { e = JSON.parse(l); } catch { continue; }
+      const r = fluxo.evento(e);
+      if (r === 'init') { clearTimeout(job.tIdle); clearTimeout(job.tInt); }
+      else if (r === 'turno-fim') { clearTimeout(job.tInt); avaliarFechamento(job); }
+      else if (r === 'bg') avaliarFechamento(job, 3000); // tarefa em 2º plano acabou: dá um instante para o aviso dela virar um turno
+    }
+  });
+  child.stderr.on('data', (d) => { job.err = (job.err + d).slice(-4000); });
   const finish = (code, msg) => als.run(proj, () => {
     if (job.done) return;
-    job.done = true;
+    job.done = true; clearTimeout(job.tIdle); clearTimeout(job.tInt);
     denyAll(chat.id, 'Conversa encerrada.');
     if (chat.gen) { try { catalogo.atualizarLote(chat.gen.lote, { finalizado: true }); } catch {} }
     try { fs.unlinkSync(mcpCfg); } catch {}
-    if (code || msg) job.buf += `\n[${msg || `claude saiu com código ${code}`}]\n${job.err.trim()}`;
-    const c = loadChats().chats[chat.id];
-    if (c) {
-      if (!code && !msg) c.started = true;
-      c.messages.push({ role: 'assistant', text: job.buf.trim() || '(sem resposta)', ts: Date.now(), model: MODELS.includes(chat.model) ? chat.model : DEFAULT_MODEL, plan: !!chat.plan, erro: !!(code || msg) });
-      c.updated = Date.now();
-      saveChat(c);
+    const falhou = !job.morto && !!(code || msg);
+    const aviso = falhou && !fluxo.teveErro ? `[${msg || `claude saiu com código ${code}`}]${job.err.trim() ? '\n' + job.err.trim() : ''}` : '';
+    const perdidas = fluxo.encerrar({ erro: falhou, aviso });
+    if (!fluxo.emitiu) gravarNoChat(proj, chat.id, (c) => { c.messages.push({ role: 'assistant', text: '(sem resposta)', ts: Date.now(), model: modelo, plan: emPlan }); });
+    if (!falhou && fluxo.consumidas > 0) gravarNoChat(proj, chat.id, (c) => { c.started = true; });
+    if (job.depois.length) { // mensagens que chegaram enquanto o processo fechava: assumem uma nova execução, na ordem
+      const [a, ...resto] = job.depois;
+      const c = loadChats().chats[chat.id];
+      if (c && !c.closed && !falhou) {
+        salvarPerdidas(proj, chat.id, perdidas);
+        startJob(c, a.text, { mid: a.id, persistido: false });
+        for (const m of resto) entregar(c, m);
+        return;
+      }
+      perdidas.push(...job.depois);
     }
+    salvarPerdidas(proj, chat.id, perdidas);
   });
   child.on('error', (e) => finish(1, `erro ao iniciar claude: ${e.message}`));
   child.on('close', (code) => finish(code));
-  child.stdin.end(prompt);
 }
 
 // ---------- http util ----------
@@ -323,8 +477,9 @@ function readBody(req, max = MAX_BODY) {
     req.on('error', reject);
   });
 }
-const hostOk = (req) => ORIGIN_HOSTS.some((n) => (req.headers.host || '').toLowerCase() === `${n}:${PUBLIC_PORT}`);
-const originOk = (req) => !req.headers.origin || ORIGIN_HOSTS.some((n) => req.headers.origin === `http://${n}:${PUBLIC_PORT}`);
+const PORTAS_OK = [...new Set([PUBLIC_PORT, PORT])]; // o aprovador chama pela porta real (TILO_PORT); o navegador, pela pública
+const hostOk = (req) => ORIGIN_HOSTS.some((n) => PORTAS_OK.some((p) => (req.headers.host || '').toLowerCase() === `${n}:${p}`));
+const originOk = (req) => !req.headers.origin || ORIGIN_HOSTS.some((n) => PORTAS_OK.some((p) => req.headers.origin === `http://${n}:${p}`));
 function cookieToken(req) {
   const m = (req.headers.cookie || '').match(/(?:^|;\s*)tilo_t=([0-9a-f]+)/);
   return m ? m[1] : null;
@@ -461,14 +616,21 @@ async function core(req, res, url) {
           return msgs ? send(res, 200, { messages: msgs }) : send(res, 404, { erro: 'sessão não encontrada' });
         }
         case '/api/sessoes': return send(res, 200, { terminal: terminalSessions(), now: Date.now() });
+        case '/api/consumo': { // estimativa local: tokens de hoje e dos últimos 7 dias SÓ do projeto atual (painel + terminal)
+          const pastas = [P().TERM_DIR];
+          for (const c of Object.values(readJson(P().CHATS, { chats: {} }).chats)) if (c.gen?.dir) pastas.push(pastaDeTranscripts(c.gen.dir));
+          return send(res, 200, { ...consumoRecente(pastas), now: Date.now() });
+        }
         case '/api/chats': {
           const list = Object.values(loadChats().chats).sort((a, b) => b.updated - a.updated).map(chatView);
           return send(res, 200, { chats: list });
         }
+        case '/api/aprovacoes': return send(res, 200, { pendentes: [...approvals.values()].filter((a) => a.proj.id === P().id).sort((a, b) => a.criado - b.criado).map(approvalView) }); // de todas as conversas DESTE projeto (nunca de outro projeto)
         case '/api/chat/stream': {
           const id = url.searchParams.get('id') || '';
           const j = jobs.get(id);
-          return send(res, 200, j ? { text: j.buf, done: j.done, pendentes: pendingOf(id).map(approvalView) } : { text: '', done: true, pendentes: [] });
+          if (!j || j.proj.id !== P().id) return send(res, 200, { text: '', tools: [], fila: [], rev: 0, ocupado: false, bg: 0, done: true, pendentes: [] });
+          return send(res, 200, { ...j.fluxo.vista(), fila: estadoDoJob(id).fila, done: j.done, pendentes: pendingOf(id).map(approvalView) });
         }
         case '/api/file': {
           const rel = url.searchParams.get('p') || '';
@@ -476,7 +638,11 @@ async function core(req, res, url) {
           const top = path.relative(P().ROOT, abs).split(path.sep)[0];
           if (!abs.startsWith(P().ROOT + path.sep) || !P().READABLE_DIRS.includes(top) || /(^|[\\/])\.env/.test(abs)) return send(res, 403, { erro: 'caminho não permitido' });
           if (!fs.existsSync(abs) || !fs.statSync(abs).isFile() || fs.statSync(abs).size > 500_000) return send(res, 404, { erro: 'arquivo não encontrado ou grande demais' });
-          return send(res, 200, { path: rel, content: fs.readFileSync(abs, 'utf8') });
+          let real, raizReal; // resolve atalhos (links simbólicos): o destino também precisa estar dentro da pasta legível
+          try { real = fs.realpathSync(abs); raizReal = fs.realpathSync(P().ROOT); } catch { return send(res, 404, { erro: 'arquivo não encontrado ou grande demais' }); }
+          const topReal = path.relative(raizReal, real).split(path.sep)[0];
+          if (!real.startsWith(raizReal + path.sep) || !P().READABLE_DIRS.includes(topReal)) return send(res, 403, { erro: 'caminho não permitido' });
+          return send(res, 200, { path: rel, content: fs.readFileSync(real, 'utf8') });
         }
         default: return send(res, 404, { erro: 'não encontrado' });
       }
@@ -488,6 +654,10 @@ async function core(req, res, url) {
     switch (url.pathname) {
       case '/api/projetos': { // cadastrar projeto (opcionalmente cria a estrutura base do padrão de documentação, sem sobrescrever nada)
         try { const r = projetos.adicionar({ nome: body.nome, raiz: body.raiz, cor: body.cor, descricao: body.descricao, estruturaBase: body.estruturaBase === true, icone: body.icone, logo: body.logo }); return send(res, 200, r); }
+        catch (e) { return send(res, 400, { erro: e.message }); }
+      }
+      case '/api/projetos/remover': { // só tira da lista; pasta do projeto e dados/ ficam intactos
+        try { return send(res, 200, projetos.remover(String(body.id || ''))); }
         catch (e) { return send(res, 400, { erro: e.message }); }
       }
       case '/api/projetos/editar': {
@@ -643,7 +813,7 @@ async function core(req, res, url) {
         const id = crypto.randomUUID();
         const c = {
           id, title: str(body.title, 80) || 'Nova conversa', itemId: str(body.itemId, 12), contexto: str(body.contexto, 4000),
-          model: MODELS.includes(body.model) ? body.model : DEFAULT_MODEL, plan: !!body.plan, edit: true, exec: true, started: false,
+          model: MODELS.includes(body.model) ? body.model : DEFAULT_MODEL, plan: !!body.plan, modo: MODOS_BASE.includes(body.modo) ? body.modo : 'editar', started: false,
           created: Date.now(), updated: Date.now(), messages: [],
         };
         saveChat(c);
@@ -652,18 +822,37 @@ async function core(req, res, url) {
       case '/api/chat/config': { // /model, /plan, edição, título
         const c = loadChats().chats[body.id];
         if (!c) return send(res, 404, { erro: 'conversa' });
+        const antes = { plan: !!c.plan, model: c.model };
         if (body.model !== undefined) { if (!MODELS.includes(body.model)) return send(res, 400, { erro: 'modelo' }); c.model = body.model; }
-        if (body.plan !== undefined) c.plan = !!body.plan;
-        if (body.edit !== undefined) c.edit = !!body.edit;
-        if (body.exec !== undefined) { c.exec = !!body.exec; if (!c.exec) autoSessao.delete(c.id); }
+        if (body.plan !== undefined) c.plan = !!body.plan; // atalho de /plan
+        if (body.modo !== undefined) { // seletor único de modo
+          if (!MODOS.includes(body.modo)) return send(res, 400, { erro: 'modo' });
+          if (c.doc) return send(res, 400, { erro: 'conversas de documentação têm modo fixo' });
+          if (body.modo === 'plan') { c.plan = true; autoSessao.delete(c.id); }
+          else {
+            c.plan = false;
+            if (body.modo === 'auto') { c.modo = 'editar'; autoSessao.add(c.id); } else { c.modo = body.modo; autoSessao.delete(c.id); }
+          }
+          audit(P(), { chat: c.id, decisao: 'modo', quem: 'dono', motivo: `modo da conversa: ${body.modo}` });
+        }
+        { const j = jobAtivo(c.id); // a sessão em andamento muda de modo/modelo na hora (como Shift+Tab e /model no terminal)
+          if (j && j.proj.id === P().id && !j.closing) {
+            try {
+              if (!!c.plan !== antes.plan && !c.doc) j.child.stdin.write(linhaModo(c.plan ? 'plan' : 'default', crypto.randomUUID()));
+              if (c.model !== antes.model) j.child.stdin.write(linhaModelo(MODEL_IDS[c.model] || MODEL_IDS[DEFAULT_MODEL], crypto.randomUUID()));
+            } catch {}
+          } }
         if (body.title !== undefined) c.title = str(body.title, 80) || c.title;
         if (body.closed !== undefined) {
           c.closed = !!body.closed;
           if (c.closed) { // encerrar interrompe a resposta em andamento e as aprovações pendentes
-            const j = jobs.get(c.id);
+            const j = jobAtivo(c.id);
             denyAll(c.id, 'Conversa encerrada.');
             autoSessao.delete(c.id);
-            if (j && !j.done) j.child.kill();
+            if (j) { // o que o Claude não chegou a ler fica no histórico, marcado (grava em `c`, que é salvo logo abaixo; gravar em arquivo seria sobrescrito)
+              for (const m of [...j.fluxo.fila, ...j.depois]) if (!m.persistido) c.messages.push({ role: 'user', text: m.text, ts: m.ts, mid: m.id, naoLida: true });
+              j.depois = []; j.fluxo.fila.length = 0; matar(j);
+            }
           }
         }
         c.updated = Date.now();
@@ -675,18 +864,26 @@ async function core(req, res, url) {
         const text = str(body.text, 20_000).trim();
         if (!c || !text) return send(res, 400, { erro: 'conversa/texto' });
         if (c.closed) return send(res, 409, { erro: 'esta conversa está encerrada; reabra para continuar' });
-        if (jobs.get(c.id) && !jobs.get(c.id).done) return send(res, 409, { erro: 'esta conversa já está respondendo' });
+        const mid = /^[0-9a-f-]{8,64}$/i.test(String(body.mid || '')) ? String(body.mid) : crypto.randomUUID();
+        const vistos = midsVistos.get(c.id) || midsVistos.set(c.id, new Set()).get(c.id);
+        if (vistos.has(mid)) return send(res, 200, chatView(c)); // reenvio do mesmo clique/rede: não duplica
+        const j = jobAtivo(c.id);
+        if (j && j.proj.id !== P().id) return send(res, 409, { erro: 'conversa pertence a outro projeto' });
+        if (j && j.fluxo.fila.length + j.depois.length >= FILA_MAX) return send(res, 409, { erro: `já há ${FILA_MAX} mensagens na fila; aguarde o Claude ler algumas` });
+        vistos.add(mid); if (vistos.size > 200) vistos.delete(vistos.values().next().value);
+        // Com o Claude trabalhando, a mensagem vai para a fila nativa do Claude Code e só entra no histórico quando ele a lê (ordem real).
+        if (j) { entregar(c, { id: mid, text, ts: Date.now(), persistido: false }); return send(res, 200, chatView(c)); }
         if (c.title === 'Nova conversa' && !c.messages.some((m) => m.role === 'user')) c.title = tituloDaMensagem(text) || c.title; // nome sugerido: início da 1ª mensagem
-        c.messages.push({ role: 'user', text, ts: Date.now(), model: MODELS.includes(c.model) ? c.model : DEFAULT_MODEL, plan: c.plan });
+        c.messages.push({ role: 'user', text, ts: Date.now(), mid, model: MODELS.includes(c.model) ? c.model : DEFAULT_MODEL, plan: c.plan });
         c.updated = Date.now();
         saveChat(c);
-        startJob(c, text);
+        startJob(c, text, { mid, persistido: true });
         return send(res, 200, chatView(c));
       }
       case '/api/aprovacao/pedir': { // chamado pelo aprovador-mcp.mjs (processo filho do claude)
         const chatId = String(body.chatId || '');
         const job = jobs.get(chatId);
-        if (!UUID.test(chatId) || !job || job.done || !loadChats().chats[chatId]) return send(res, 409, { erro: 'conversa não está em execução' });
+        if (!UUID.test(chatId) || !job || job.done || job.proj.id !== P().id || !loadChats().chats[chatId]) return send(res, 409, { erro: 'conversa não está em execução' });
         const tool = str(body.tool_name, 80), input = body.input && typeof body.input === 'object' ? body.input : {};
         if (tool === 'AskUserQuestion') {
           const perguntas = normalizarPerguntas(input);
@@ -695,6 +892,21 @@ async function core(req, res, url) {
           req.on('close', () => { if (!res.writableEnded) ac.abort(); });
           return send(res, 200, await askPergunta(chatId, input, perguntas, ac.signal));
         }
+        if (tool === 'ExitPlanMode') {
+          const ac = new AbortController();
+          req.on('close', () => { if (!res.writableEnded) ac.abort(); });
+          return send(res, 200, await askPlano(chatId, input, ac.signal));
+        }
+        { const c = loadChats().chats[chatId], modo = modoEfetivo(c); // o modo é lido AGORA: mudar no seletor vale já para o próximo pedido
+          if (!c.doc && modo === 'leitura' && (FERRAMENTAS_EDICAO.includes(tool) || ['Bash', 'PowerShell'].includes(tool))) {
+            audit(P(), { chat: chatId, tool, resumo: str(input.command || input.file_path, 4000), risco: 'normal', decisao: 'deny', quem: 'modo', motivo: 'conversa em modo somente leitura' });
+            return send(res, 200, { behavior: 'deny', message: 'A conversa está em modo somente leitura. Não edite arquivos nem rode comandos; peça ao dono para trocar o modo, se necessário.' });
+          }
+          const alvo = input.file_path || input.notebook_path;
+          if (!c.doc && ['editar', 'auto'].includes(modo) && FERRAMENTAS_EDICAO.includes(tool) && dentroDe(c.gen ? c.gen.dir : P().ROOT, alvo)) { // edição dentro do projeto liberada pelo modo (arquivos protegidos já são negados nas settings)
+            audit(P(), { chat: chatId, tool, resumo: str(alvo, 4000), risco: 'normal', decisao: 'allow', quem: 'modo', motivo: `modo ${modo}` });
+            return send(res, 200, { behavior: 'allow' });
+          } }
         const v = loadChats().chats[chatId].doc && FERRAMENTAS_ARQUIVO.includes(tool)
           ? (loadChats().chats[chatId].gen ? avaliarArquivo(tool, input, { root: loadChats().chats[chatId].gen.dir, existe: fs.existsSync, modo: 'gen' }) : avaliarArquivo(tool, input, { root: P().ROOT, existe: fs.existsSync }))
           : avaliar(tool, input, compilar(P().politica));
@@ -713,7 +925,7 @@ async function core(req, res, url) {
       }
       case '/api/aprovacao/decidir': {
         const a = approvals.get(String(body.id));
-        if (!a) return send(res, 404, { erro: 'pedido não existe mais (expirou ou foi cancelado)' });
+        if (!a || a.proj.id !== P().id) return send(res, 404, { erro: 'pedido não existe mais (expirou ou foi cancelado)' });
         if (a.tipo === 'pergunta') { // resposta às perguntas do Claude: { pergunta: "opção" | "opção1, opção2" | "texto livre" }
           if (body.permitir !== true) return settle(a, 'deny', 'O dono dispensou a pergunta. Siga com a melhor suposição e avise o dono.', 'dono'), send(res, 200, { ok: true });
           const r = body.respostas && typeof body.respostas === 'object' ? body.respostas : {};
@@ -726,9 +938,10 @@ async function core(req, res, url) {
         const lembrar = body.permitir === true && body.lembrar === true && a.lembravel; // aprova e guarda o texto exato como permissão do projeto
         if (sessao) autoSessao.add(a.chatId);
         if (lembrar) { try { projetos.atualizarPolitica(a.proj.id, (c) => { if (!c.lembrados.some((l) => l.comando === a.comando)) c.lembrados.push({ comando: a.comando, quando: new Date().toISOString() }); }); } catch {} }
-        settle(a, body.permitir === true ? 'allow' : 'deny', body.permitir === true ? '' : 'Negado pelo dono.', sessao ? 'dono (sessão)' : lembrar ? 'dono (lembrou)' : 'dono');
+        const soSair = a.tipo === 'plano' && body.permitir !== true && body.sairPlano === true; // sai do planejamento sem executar: o dono vai escrever uma instrução
+        settle(a, body.permitir === true ? 'allow' : 'deny', body.permitir === true ? '' : soSair ? 'O dono saiu do planejamento sem aprovar o plano e vai escrever uma instrução. Não execute nada; aguarde a próxima mensagem.' : 'O dono não aprovou o plano. Continue no planejamento e aguarde a próxima mensagem com os ajustes.', sessao ? 'dono (sessão)' : lembrar ? 'dono (lembrou)' : 'dono');
         if (sessao) for (const o of pendingOf(a.chatId)) if (o.risco === 'normal') settle(o, 'allow', '', 'sessão');
-        if (a.tool === 'ExitPlanMode' && body.permitir === true) { // plano aprovado: desliga o modo plan, senão a próxima mensagem voltaria a abrir em plan
+        if (a.tool === 'ExitPlanMode' && (body.permitir === true || soSair)) { // plano aprovado: desliga o modo plan, senão a próxima mensagem voltaria a abrir em plan
           const c = loadChats().chats[a.chatId];
           if (c && c.plan) { c.plan = false; c.updated = Date.now(); saveChat(c); }
         }
@@ -742,20 +955,19 @@ async function core(req, res, url) {
         return send(res, 200, { ok: true });
       }
       case '/api/chat/cancelar': {
-        const j = jobs.get(body.id);
-        denyAll(String(body.id), 'Cancelado pelo dono.');
-        if (j && !j.done) j.child.kill();
-        return send(res, 200, { ok: true });
+        const j = jobAtivo(String(body.id));
+        if (!j || j.proj.id !== P().id) return send(res, 200, { ok: true, resultado: 'nada em execução' });
+        return send(res, 200, { ok: true, resultado: interromper(j) }); // interrompe o passo em curso (Esc); a conversa continua aceitando mensagens
       }
       case '/api/chat/apagar': {
         const d = loadChats();
         if (!UUID.test(String(body.id))) return send(res, 400, { erro: 'id' });
-        const j = jobs.get(body.id);
+        const j = jobAtivo(body.id);
         denyAll(body.id, 'Conversa apagada.');
         autoSessao.delete(body.id);
-        if (j && !j.done) j.child.kill();
+        if (j) { j.fluxo.fila.length = 0; j.depois = []; matar(j); }
         delete d.chats[body.id];
-        jobs.delete(body.id);
+        jobs.delete(body.id); midsVistos.delete(body.id);
         writeJson(P().CHATS, d);
         return send(res, 200, { ok: true });
       }
@@ -763,7 +975,14 @@ async function core(req, res, url) {
         audit(P(), { chat: '-', tool: 'servidor', resumo: 'reiniciar o servidor', risco: 'normal', decisao: 'liberado', quem: 'dono', motivo: 'botão Reiniciar' });
         send(res, 200, { ok: true });
         res.on('finish', () => {
-          for (const [id, j] of jobs) { if (!j.done) { denyAll(id, 'Servidor reiniciando.'); try { j.child.kill(); } catch {} } }
+          for (const [id, j] of jobs) {
+            if (j.done) continue;
+            denyAll(id, 'Servidor reiniciando.');
+            const f = j.fluxo; // o que o Claude já disse e o que ele não leu ficam no histórico, marcados
+            salvarPerdidas(j.proj, id, [...f.fila.splice(0), ...j.depois.splice(0)]);
+            gravarNoChat(j.proj, id, (c) => { const t = f.textoVivo.trim(); if (t) c.messages.push({ role: 'assistant', text: t + '\n\n[interrompido: servidor reiniciando]', ts: Date.now(), erro: true }); });
+            matar(j);
+          }
           // processo auxiliar separado: espera a porta liberar e sobe o servidor de novo (mesmos logs do atalho)
           const cod = `const fs=require('node:fs'),p=require('node:path'),d=${JSON.stringify(HERE)};setTimeout(()=>require('node:child_process').spawn(process.execPath,['server.mjs'],{cwd:d,detached:true,windowsHide:true,stdio:['ignore',fs.openSync(p.join(d,'tilo.log'),'w'),fs.openSync(p.join(d,'tilo.err.log'),'w')],env:{...process.env,ANTHROPIC_API_KEY:'',ANTHROPIC_AUTH_TOKEN:''}}).unref(),1500)`;
           spawn(process.execPath, ['-e', cod], { detached: true, windowsHide: true, stdio: 'ignore' }).unref();

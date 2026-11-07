@@ -20,7 +20,7 @@ function render() {
   rail.innerHTML = S.projetos.map((p, i) => `<button class="tile ${i === S.sel ? 'on' : ''}" role="option" data-i="${i}" aria-label="${esc(p.nome)}" style="--c:${esc(p.cor)}"><img src="${esc(p.logo)}?v=${S.v}" alt=""></button>`).join('')
     + `<button class="tile add ${S.sel === S.projetos.length ? 'on' : ''}" role="option" data-i="${S.projetos.length}" aria-label="Novo projeto"><i class="pi pi-plus"></i></button>`;
   const p = S.projetos[S.sel];
-  $('#info').innerHTML = p ? `<h1>${esc(p.nome)}</h1><p>${esc(p.descricao || 'Abrir pendências, sessões e conversas')}</p><button class="b" id="edit-btn"><i class="pi pi-pencil"></i> Editar</button>` : '<h1>Novo projeto</h1><p>Adicione outro projeto ao Tilo</p>';
+  $('#info').innerHTML = p ? `<h1>${esc(p.nome)}</h1><p>${esc(p.descricao || 'Abrir pendências, sessões e conversas')}</p><button class="b" id="edit-btn"><i class="pi pi-pencil"></i> Editar</button> <button class="b" id="del-btn"><i class="pi pi-trash"></i> Excluir da lista</button>` : '<h1>Novo projeto</h1><p>Adicione outro projeto ao Tilo</p>';
   rail.querySelector('.tile.on')?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
 }
 function abrir(i) {
@@ -83,7 +83,14 @@ function editar(p) {
   IMG.rmIcone = IMG.rmLogo = false;
   abrirForm(true);
 }
-$('#info').addEventListener('click', (e) => { if (e.target.closest('#edit-btn')) editar(S.projetos[S.sel]); });
+$('#info').addEventListener('click', async (e) => {
+  if (e.target.closest('#edit-btn')) return editar(S.projetos[S.sel]);
+  if (!e.target.closest('#del-btn')) return;
+  const p = S.projetos[S.sel]; if (!p) return;
+  if (!confirm(`Tirar "${p.nome}" da lista do Tilo?\n\nA pasta do projeto e as conversas guardadas no Tilo NÃO são apagadas.`)) return;
+  try { await api('/api/projetos/remover', { id: p.id }); S.sel = 0; await carregar(); toast('Projeto removido da lista.'); }
+  catch (x) { toast(x.message); }
+});
 $('#n-cancel').addEventListener('click', () => $('#novo').close());
 $('#novo-form').addEventListener('submit', async (e) => {
   e.preventDefault();
