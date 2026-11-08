@@ -23,6 +23,7 @@ O painel do dono: decisões, tarefas e conferências do projeto, lidas de um arq
 
 - **Acompanhar:** a tela Pendências filtra por seção, prioridade, status (padrão: ativos = abertos e em andamento) e texto; a Visão geral mostra contagens e as cinco críticas abertas.
 - **Em andamento automático:** uma pendência `aberto` conta como "em andamento" (Visão geral, "Trabalhando agora", filtros e selo "automático") enquanto houver uma conversa do painel vinculada a ela que **não foi encerrada**. Encerrar a conversa tira a pendência desse estado. É calculado na tela; não grava em `estado.json`. Feito e ignorado nunca entram.
+- **"Trabalhando agora" na Visão geral:** além das pendências em andamento, lista as conversas do painel **abertas** (não encerradas) que não estão ligadas a uma pendência em andamento, com um ponto verde enquanto o Claude trabalha. Conversas de geração da biblioteca não entram. O número "Em andamento" das métricas continua contando só pendências.
 - **Mudar estado:** seletor em cada item.
 - **Concluir:** marcar "Feito" e depois remover. Remover apaga a linha do `pendencias/README.md`, depois de confirmar com o dono e de conferir que a linha ainda tem o mesmo conteúdo (senão pede para recarregar).
 - **Conversar sobre um item:** abre (ou retoma) uma conversa vinculada ao item, com seção, prioridade e linha como contexto ([conversas-claude.md](conversas-claude.md)).

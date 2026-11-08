@@ -144,6 +144,7 @@ test('histórico: páginas, enviado ou não, arquivos e diff do commit', { skip:
   assert.deepEqual(h.commits.map((c) => [c.assunto, c.enviado]), [['Cria c', false], ['Cria b', false]]);
   assert.deepEqual(h.commits[1].chats, [ID1]);
   assert.equal(h.mais, true);
+  assert.equal(h.total, 3);
   const p2 = await historico(dir, { limite: 2, pular: 2 });
   assert.deepEqual(p2.commits.map((c) => [c.assunto, c.enviado]), [['inicial', true]]);
   assert.equal(p2.mais, false);

@@ -199,6 +199,8 @@ function cardConsumo() {
 function viewVisao() {
   const open = items().filter(isOpen), by = (p) => open.filter((i) => i.prio === p).length;
   const doing = items().filter((i) => stEf(i) === 'andamento');
+  // conversas abertas (não encerradas) também contam como "trabalhando agora"; as ligadas a uma pendência em andamento já aparecem pela pendência
+  const abertas = S.chats.filter((c) => !c.closed && !c.gen && !doing.some((i) => i.id === c.itemId)).sort((a, b) => b.updated - a.updated);
   const crit = open.filter((i) => i.prio === 'alta' && stEf(i) !== 'andamento').slice(0, 5);
   const act = recentSessions().slice(0, 5);
   const liveN = act.filter((a) => a.running || Date.now() - a.t < 120000).length;
@@ -214,7 +216,9 @@ function viewVisao() {
   </div>
   <div class="grid g2">
     <section class="card"><div class="card-head"><div class="ico"><i class="pi pi-play-circle"></i></div><h3>Trabalhando agora</h3><a href="#/pendencias?stat=andamento">Ver todas</a></div><div class="card-body">
-      ${doing.length ? doing.slice(0, 5).map((i) => `<div class="row-line" data-act="open-item" data-id="${i.id}"><span class="badge tone-${PRIO[i.prio].t}"><i class="pi ${PRIO[i.prio].i}"></i></span><div class="rl-t trunc">${esc(i.title)}</div><span class="rl-s">${esc(short(i.section.replace(/\(.*\)/, ''), 22))}</span></div>`).join('') : empty('pi-play-circle', 'Nada em andamento. Uma pendência entra aqui sozinha quando você abre uma conversa sobre ela.')}
+      ${(doing.length || abertas.length) ? doing.slice(0, 5).map((i) => `<div class="row-line" data-act="open-item" data-id="${i.id}"><span class="badge tone-${PRIO[i.prio].t}"><i class="pi ${PRIO[i.prio].i}"></i></span><div class="rl-t trunc">${esc(i.title)}</div><span class="rl-s">${esc(short(i.section.replace(/\(.*\)/, ''), 22))}</span></div>`).join('')
+        + abertas.slice(0, 5).map((c) => `<div class="row-line" data-act="open-sess" data-kind="chat" data-id="${c.id}"><span class="dot ${c.running ? 'live' : age(c.updated)}"></span><div class="rl-t trunc">${esc(c.title)}</div>${c.plan ? badge('Plan', 'primary') : ''}<span class="rl-s">conversa · ${c.running ? 'trabalhando' : ago(c.updated)}</span></div>`).join('')
+        : empty('pi-play-circle', 'Nada em andamento. Uma pendência entra aqui sozinha quando você abre uma conversa sobre ela; conversas abertas sem pendência também aparecem.')}
     </div></section>
     <section class="card"><div class="card-head"><div class="ico"><i class="pi pi-history"></i></div><h3>Sessões recentes</h3><a href="#/sessoes">Ver todas</a></div><div class="card-body">
       ${act.length ? act.map((a) => `<div class="row-line" data-act="open-sess" data-kind="${a.kind}" data-id="${a.id}"><span class="dot ${a.running ? 'live' : age(a.t)}"></span><div class="rl-t trunc">${esc(a.title)}</div>${a.plan ? badge('Plan', 'primary') : ''}<span class="rl-s">${a.kind === 'chat' ? 'painel' : 'terminal'} · ${ago(a.t)}</span></div>`).join('') : empty('pi-history', 'Sem sessões recentes.')}
@@ -222,10 +226,23 @@ function viewVisao() {
     <section class="card"><div class="card-head"><div class="ico tone-danger"><i class="pi pi-exclamation-triangle"></i></div><h3>Próximas ações críticas</h3><a href="#/pendencias?prio=alta">Ver todas</a></div><div class="card-body">
       ${crit.length ? crit.map((i) => `<div class="row-line" data-act="open-item" data-id="${i.id}"><div class="rl-t trunc">${esc(i.title)}</div><span class="rl-s">${esc(short(i.section.replace(/\(.*\)/, ''), 22))}</span></div>`).join('') : empty('pi-check-circle', 'Nenhuma crítica aberta 🎉')}
     </div></section>
-    <section class="card"><div class="card-head"><div class="ico"><i class="pi pi-folder-open"></i></div><h3>Alterados recentemente</h3><a href="#/documentacao">Ver todos</a></div><div class="card-body">
+    ${cardAlteracoes()}
+    <section class="card"><div class="card-head"><div class="ico"><i class="pi pi-folder-open"></i></div><h3>Documentos alterados recentemente</h3><a href="#/documentacao">Ver todos</a></div><div class="card-body">
       ${S.files.slice(0, 6).map((f) => `<div class="row-line" data-act="file" data-p="${esc(f.path)}"><i class="pi pi-file" style="color:var(--faint)"></i><div class="rl-t trunc">${esc(f.path)}</div><span class="rl-s">${ago(f.mtime)}</span></div>`).join('') || empty('pi-folder-open', 'Sem arquivos.')}
     </div></section>
   </div>`;
+}
+// Resumo do git na Visão geral: usa os dados que a aba Alterações já mantém (S.alt), sem rota nova.
+function cardAlteracoes() {
+  const g = S.alt.dados, rec = S.alt.hist.recentes || [];
+  const cab = `<div class="card-head"><div class="ico"><i class="pi pi-sitemap"></i></div><h3>Alterações</h3><a href="#/alteracoes">Ver todas</a></div>`;
+  if (!g) return `<section class="card">${cab}<div class="card-body">${empty('pi-sitemap', S.alt.erro ? 'Não consegui ler o git: ' + esc(S.alt.erro) : 'Carregando…')}</div></section>`;
+  if (!g.repo) return `<section class="card">${cab}<div class="card-body">${empty('pi-sitemap', 'Este projeto não usa git.')}</div></section>`;
+  const sem = g.arquivos.length, env = g.naoEnviados.length;
+  const linhas = rec.slice(0, 5).map((c) => `<div class="row-line" data-act="go" data-to="alteracoes"><code>${esc(c.curto)}</code><div class="rl-t trunc">${esc(c.assunto)}</div>${c.conversas.length ? altChip(c.conversas[0]) : ''}<span class="rl-s">${c.enviado === false ? 'não enviado · ' : ''}${ago(c.quando)}</span></div>`).join('');
+  return `<section class="card">${cab}<div class="card-body">
+    <div class="alt-resumo">${badge(g.branch || 'sem branch', 'primary', 'pi-sitemap')}${sem ? badge(`${sem} sem commit`, 'warning', 'pi-pencil') : badge('tudo commitado', 'success', 'pi-check')}${g.semRemoto ? '' : env ? badge(`${env} sem push`, 'warning', 'pi-upload') : badge('tudo no GitHub', 'success', 'pi-check')}</div>
+    ${linhas || empty('pi-history', 'Nenhum commit ainda.')}</div></section>`;
 }
 function recentSessions() {
   return [
@@ -669,7 +686,7 @@ document.addEventListener('click', async (e) => {
       case 'alt-push': await altPush(); break;
       case 'alt-hist-abrir': await altCommitAbrir(d.sha); break;
       case 'alt-hist-diff': await altCommitDiff(d.sha, d.p); break;
-      case 'alt-hist-mais': await loadHistorico(false); break;
+      case 'alt-hist-pag': await loadHistorico(false, Number(d.p)); break;
       case 'alt-nova-branch': await altNovaBranch(); break;
       case 'alt-recarregar': await loadAlteracoes(true); toast('Atualizado'); break;
       case 'page': S.page[d.key] = Number(d.p); render(); window.scrollTo({ top: 0 }); break;
@@ -1003,7 +1020,7 @@ function renderPermissoes() {
 // S.alt: dados (resposta de /api/alteracoes), sel (arquivos marcados para o commit), vistos (arquivos já apresentados; os novos entram marcados),
 // fora (conversas desmarcadas), extra (conversas vinculadas à mão), msg (mensagem do commit), abertos/diffs (diffs expandidos), busy.
 // S.alt.hist: histórico de commits (commits, mais, chave = head+não enviados para saber quando recarregar, abertos = commits expandidos, arqs/diffs por commit).
-S.alt = { hist: { commits: [], mais: false, carregando: false, chave: '', abertos: new Set(), arqs: {}, diffs: {}, erro: '' }, dados: null, sel: new Set(), vistos: new Set(), fora: new Set(), extra: new Set(), msg: '', abertos: new Set(), diffs: {}, busy: false, sig: '', erro: '' };
+S.alt = { hist: { commits: [], pagina: 1, total: 0, carregando: false, chave: '', abertos: new Set(), arqs: {}, diffs: {}, erro: '' }, dados: null, sel: new Set(), vistos: new Set(), fora: new Set(), extra: new Set(), msg: '', abertos: new Set(), diffs: {}, busy: false, sig: '', erro: '' };
 const altTotal = () => (S.alt.dados?.repo ? S.alt.dados.arquivos.length + S.alt.dados.naoEnviados.length : 0);
 async function loadAlteracoes(forcar) {
   try {
@@ -1021,6 +1038,7 @@ async function loadAlteracoes(forcar) {
   } catch (x) { S.alt.dados = null; S.alt.erro = x.message; }
   renderNav();
   if (route() === 'alteracoes' && !document.activeElement?.closest?.('#alt-root textarea')) renderAlteracoes();
+  else if (route() === 'visao') render();
 }
 const altConversasDoCommit = () => { // conversas que entram no commit: as que editaram os arquivos marcados + as vinculadas à mão, menos as desmarcadas
   const A = S.alt, m = new Map();
@@ -1040,7 +1058,7 @@ function renderAlteracoes() {
   if (!g) { root.innerHTML = cab('Veja o que mudou no projeto e de qual conversa veio cada mudança.') + `<div class="note">${A.erro ? `Não consegui carregar: ${esc(A.erro)}` : 'Carregando…'}</div>`; return; }
   if (!g.repo) { root.innerHTML = cab('Veja o que mudou no projeto e de qual conversa veio cada mudança.') + empty('pi-sitemap', 'A pasta deste projeto não é um repositório git, então não há alterações para mostrar.'); return; }
   const ult = g.naoEnviados.length;
-  const remoto = g.semRemoto ? badge('sem GitHub configurado', 'warn', 'pi-exclamation-triangle') : g.upstream ? badge('acompanha ' + g.upstream, 'neutral', 'pi-github') : badge('branch ainda não enviada', 'warn', 'pi-exclamation-triangle');
+  const remoto = g.semRemoto ? badge('sem GitHub configurado', 'warning', 'pi-exclamation-triangle') : g.upstream ? badge('acompanha ' + g.upstream, 'neutral', 'pi-github') : badge('branch ainda não enviada', 'warning', 'pi-exclamation-triangle');
   const arqs = g.arquivos.map((a) => {
     const tom = a.rotulo === 'novo' ? 'success' : a.rotulo === 'apagado' ? 'danger' : a.rotulo === 'conflito' ? 'danger' : 'info';
     const aberto = A.abertos.has(a.caminho), df = A.diffs[a.caminho];
@@ -1078,18 +1096,34 @@ function renderAlteracoes() {
       ${ult && !g.semRemoto ? `<div class="alt-actions"><button class="btn primary" data-act="alt-push" ${A.busy ? 'disabled' : ''} title="Envia os commits para o GitHub (git push, nunca forçado)"><i class="pi pi-upload"></i> Enviar ${ult} commit${ult === 1 ? '' : 's'} ao GitHub</button></div>` : ''}</div></div>
     ${altHistoricoHtml()}`;
 }
-async function loadHistorico(reiniciar) {
+const HIST_POR_PAGINA = 10;
+async function loadHistorico(reiniciar, pagina) {
   const H = S.alt.hist;
   if (H.carregando) return;
   H.carregando = true; H.erro = '';
+  if (reiniciar) H.pagina = 1; else if (pagina) H.pagina = pagina;
   try {
-    const r = await api('/api/alteracoes/historico?limite=20&pular=' + (reiniciar ? 0 : H.commits.length));
-    H.commits = reiniciar ? r.commits || [] : H.commits.concat(r.commits || []);
-    H.mais = !!r.mais;
-    if (reiniciar) { H.abertos.clear(); H.arqs = {}; H.diffs = {}; }
+    let r = await api(`/api/alteracoes/historico?limite=${HIST_POR_PAGINA}&pular=${(H.pagina - 1) * HIST_POR_PAGINA}`);
+    const ultima = Math.max(1, Math.ceil((r.total || 0) / HIST_POR_PAGINA));
+    if (H.pagina > ultima) { H.pagina = ultima; r = await api(`/api/alteracoes/historico?limite=${HIST_POR_PAGINA}&pular=${(H.pagina - 1) * HIST_POR_PAGINA}`); }
+    H.commits = r.commits || []; H.total = r.total || 0;
+    if (H.pagina === 1) H.recentes = H.commits; // a Visão geral mostra os mais novos
+    H.abertos.clear(); H.arqs = {}; H.diffs = {};
   } catch (x) { H.erro = x.message; }
   H.carregando = false;
-  if (route() === 'alteracoes') renderAlteracoes();
+  if (route() === 'alteracoes') renderAlteracoes(); else if (route() === 'visao') render();
+}
+function altPaginador() { // mesmo visual do paginador das outras telas, mas a página vem do servidor
+  const H = S.alt.hist, paginas = Math.max(1, Math.ceil(H.total / HIST_POR_PAGINA)), p = H.pagina;
+  if (H.total <= HIST_POR_PAGINA) return '';
+  const nums = [];
+  for (let n = 1; n <= paginas; n++) if (n === 1 || n === paginas || Math.abs(n - p) <= 1) nums.push(n);
+  let btns = '', ult = 0;
+  for (const n of nums) { if (n - ult > 1) btns += '<span class="dots">…</span>'; btns += `<button class="pg ${n === p ? 'on' : ''}" data-act="alt-hist-pag" data-p="${n}" ${H.carregando ? 'disabled' : ''}>${n}</button>`; ult = n; }
+  const de = (p - 1) * HIST_POR_PAGINA + 1;
+  return `<div class="pager"><span>${de}–${Math.min(de + HIST_POR_PAGINA - 1, H.total)} de ${H.total}</span><div class="pages">
+    <button class="pg" data-act="alt-hist-pag" data-p="${p - 1}" ${p === 1 || H.carregando ? 'disabled' : ''} aria-label="Anterior"><i class="pi pi-angle-left"></i></button>${btns}
+    <button class="pg" data-act="alt-hist-pag" data-p="${p + 1}" ${p === paginas || H.carregando ? 'disabled' : ''} aria-label="Próxima"><i class="pi pi-angle-right"></i></button></div></div>`;
 }
 async function altCommitAbrir(sha) {
   const H = S.alt.hist;
@@ -1114,16 +1148,16 @@ function altHistoricoHtml() {
         ${a.sensivel ? '' : `<button class="btn sm" data-act="alt-hist-diff" data-sha="${c.sha}" data-p="${esc(a.caminho)}" title="${d ? 'Esconde' : 'Mostra'} o que mudou neste arquivo neste commit"><i class="pi ${d ? 'pi-chevron-up' : 'pi-eye'}"></i> ${d ? 'Esconder' : 'Ver mudanças'}</button>`}</div>
         ${d ? `<pre class="alt-diff">${d.carregando ? 'Carregando…' : d.erro ? esc(d.erro) : altDiffHtml(d.diff) + (d.cortado ? '<span class="hunk">… diff cortado (arquivo grande)</span>' : '')}</pre>` : ''}</li>`;
     }).join('')}</ul>`;
-    const env = c.enviado === null ? '' : c.enviado ? badge('no GitHub', 'success', 'pi-check') : badge('não enviado', 'warn', 'pi-upload');
+    const env = c.enviado === null ? '' : c.enviado ? badge('no GitHub', 'success', 'pi-check') : badge('não enviado', 'warning', 'pi-upload');
     return `<li class="alt-commit"><div class="alt-row"><code>${esc(c.curto)}</code><b>${esc(c.assunto)}</b>${env}<span class="muted small">${esc(c.autor)} · ${new Date(c.quando).toLocaleDateString('pt-BR')} (há ${ago(c.quando)})</span>
       <span class="alt-conv">${c.conversas.length ? c.conversas.map(altChip).join('') : '<span class="muted small" title="Este commit não tem a linha Tilo-Chat (foi feito fora do Tilo ou antes deste recurso)">sem conversa vinculada</span>'}
       <button class="btn sm" data-act="alt-hist-abrir" data-sha="${c.sha}" title="${aberto ? 'Esconde' : 'Mostra'} os arquivos deste commit"><i class="pi ${aberto ? 'pi-chevron-up' : 'pi-folder-open'}"></i> ${aberto ? 'Esconder' : 'Arquivos'}</button></span></div>${arqs}</li>`;
   }).join('');
-  return `<div class="card"><div class="card-head"><span class="ico"><i class="pi pi-history"></i></span><h3>Histórico</h3><span class="muted small">${H.commits.length}${H.mais ? '+' : ''}</span></div><div class="card-body">
-    <p class="muted small">Os commits da branch atual, do mais novo ao mais antigo, com a conversa de cada um e se já está no GitHub.</p>
+  return `<div class="card"><div class="card-head"><span class="ico"><i class="pi pi-history"></i></span><h3>Histórico</h3><span class="muted small">${H.total}</span></div><div class="card-body">
+    <p class="muted small">Os commits da branch atual, do mais novo ao mais antigo (10 por página), com a conversa de cada um e se já está no GitHub.</p>
     ${H.erro ? `<div class="muted small">${esc(H.erro)}</div>` : ''}
     ${H.commits.length ? `<ul class="alt-list">${lista}</ul>` : H.carregando ? '<div class="muted small">Carregando…</div>' : '<div class="muted small">Nenhum commit ainda.</div>'}
-    ${H.mais ? `<div class="alt-actions"><button class="btn" data-act="alt-hist-mais" ${H.carregando ? 'disabled' : ''} title="Carrega os próximos 20 commits"><i class="pi pi-angle-down"></i> Carregar mais</button></div>` : ''}</div></div>`;
+    ${altPaginador()}</div></div>`;
 }
 async function altDiff(caminho) {
   const A = S.alt;
@@ -1254,4 +1288,5 @@ async function pollAprovacoes() { if (apBusy) return; apBusy = true; try { rende
 setInterval(pollAprovacoes, 1500);
 setInterval(refresh, 4000); document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 setInterval(() => { if (route() !== 'chat' && !document.querySelector('dialog[open]')) render(); }, 60000); // mantém “há X min” fresco
+loadAlteracoes(true); // alimenta o contador do menu e o resumo da Visão geral sem esperar o ciclo de 8 s
 refresh(true).then(() => { if (route() === 'chat' && !S.sel && S.chats[0]) { S.sel = { kind: 'chat', id: S.chats[0].id }; render(); } });

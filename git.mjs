@@ -183,13 +183,14 @@ export function lerArquivosDoCommit(saida) {
 export async function historico(pasta, { limite = 20, pular = 0 } = {}) {
   const raiz = await raizGit(pasta);
   if (!raiz) return { repo: false };
-  if (!(await temCommit(raiz))) return { repo: true, commits: [], mais: false };
+  if (!(await temCommit(raiz))) return { repo: true, commits: [], mais: false, total: 0 };
   const n = Math.min(Math.max(Number(limite) || 20, 1), 100), sk = Math.max(Number(pular) || 0, 0);
   const lista = lerLog((await git(raiz, ['log', 'HEAD', `--format=${FORMATO_LOG}`, '-n', String(n + 1), '--skip', String(sk)])).out);
   const temRemoto = (await git(raiz, ['remote'])).out.trim().length > 0;
   const naoEnv = temRemoto ? new Set((await git(raiz, ['log', 'HEAD', '--not', '--remotes', '--format=%H'])).out.split(/\r?\n/).filter(Boolean)) : null;
   const commits = lista.slice(0, n).map((c) => ({ ...c, enviado: naoEnv ? !naoEnv.has(c.sha) : null }));
-  return { repo: true, commits, mais: lista.length > n };
+  const total = Number((await git(raiz, ['rev-list', '--count', 'HEAD'])).out.trim()) || 0;
+  return { repo: true, commits, mais: lista.length > n, total };
 }
 // Arquivos de um commit.
 export async function arquivosDoCommit(pasta, sha) {

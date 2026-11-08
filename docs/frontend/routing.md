@@ -17,7 +17,7 @@ Outros caminhos que não começam com `/api/`, `/assets/` ou `/logo/` respondem 
 
 | Hash | Tela |
 |---|---|
-| `#/visao` | Visão geral (cartão de consumo estimado de tokens, métricas, em andamento, sessões recentes, críticas, arquivos recentes, com link para `#/documentacao`). |
+| `#/visao` | Visão geral (cartão de consumo estimado de tokens, métricas, em andamento, sessões recentes, críticas, resumo de Alterações com os últimos commits e link para `#/alteracoes`, documentos alterados recentemente com link para `#/documentacao`). |
 | `#/pendencias` | Pendências, com filtros. |
 | `#/sessoes` | Sessões (abas Painel e Terminal). |
 | `#/chat` | Conversar com Claude. |
