@@ -601,9 +601,10 @@ async function core(req, res, url) {
             if (!e.repo) return send(res, 200, { repo: false });
             const chats = Object.values(loadChats().chats).filter((c) => !c.gen);
             const titulos = new Map(chats.map((c) => [c.id, c.title || 'Conversa']));
+            const desde = await gitx.ultimoCommitPorArquivo(e.raiz, e.arquivos.filter((a) => !a.naoRastreado).map((a) => a.caminho));
             return send(res, 200, {
               ...e,
-              arquivos: gitx.vincularArquivos(e.arquivos, chats, e.raiz, FERRAMENTAS_EDICAO).map((a) => ({ ...a, sensivel: gitx.ehSensivel(a.caminho) })),
+              arquivos: gitx.vincularArquivos(e.arquivos, chats, e.raiz, FERRAMENTAS_EDICAO, desde).map((a) => ({ ...a, sensivel: gitx.ehSensivel(a.caminho) })),
               naoEnviados: e.naoEnviados.map((c) => ({ ...c, conversas: c.chats.map((id) => ({ id, titulo: titulos.get(id) || null })) })),
             });
           } catch (err) { return send(res, 500, { erro: err.message }); }
@@ -1012,10 +1013,21 @@ async function core(req, res, url) {
         const criar = body.acao === 'criar';
         if (!criar && body.acao !== 'trocar') return send(res, 400, { erro: 'ação inválida' });
         try {
-          const r = criar ? await gitx.criarBranch(P().ROOT, str(body.nome, 100)) : await gitx.trocarBranch(P().ROOT, str(body.nome, 100));
+          const r = criar ? await gitx.criarBranch(P().ROOT, str(body.nome, 100), str(body.base, 200)) : await gitx.trocarBranch(P().ROOT, str(body.nome, 100));
           audit(P(), { chat: '-', tool: 'git', resumo: `${criar ? 'criou e trocou para' : 'trocou para'} a branch ${r.branch}`, risco: 'normal', decisao: 'liberado', quem: 'dono', motivo: 'seletor de branch da aba Alterações' });
           return send(res, 200, r);
         } catch (err) { return send(res, 400, { erro: err.message }); }
+      }
+      case '/api/alteracoes/pull': { // baixa e junta uma branch remota na branch atual; não com o Claude trabalhando (os arquivos mudariam debaixo dele)
+        if ([...jobs.values()].some((j) => !j.done && j.proj.id === P().id)) return send(res, 409, { erro: 'O Claude está trabalhando neste projeto. Espere terminar (ou pare a conversa) antes de dar pull.' });
+        try {
+          const r = await gitx.puxar(P().ROOT, str(body.remota, 200));
+          audit(P(), { chat: '-', tool: 'git', resumo: `pull de ${r.remota} (${r.commits} commit(s))`, risco: 'normal', decisao: 'liberado', quem: 'dono', motivo: 'botão Pull do chat' });
+          return send(res, 200, r);
+        } catch (err) {
+          audit(P(), { chat: '-', tool: 'git', resumo: 'pull falhou', risco: 'normal', decisao: 'erro', quem: 'dono', motivo: String(err.message).slice(0, 300) });
+          return send(res, 400, { erro: err.message });
+        }
       }
       case '/api/alteracoes/push': { // envia os commits ao GitHub (nunca com --force); é ação de produção, a UI confirma antes
         try {

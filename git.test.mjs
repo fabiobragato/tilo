@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { estado, diff, commitar, enviar, trocarBranch, criarBranch, nomeBranchValido, historico, arquivosDoCommit, diffDoCommit, lerArquivosDoCommit, lerStatus, lerLog, montarMensagem, ehSensivel, vincularArquivos, gitDisponivel } from './git.mjs';
+import { estado, diff, commitar, enviar, puxar, trocarBranch, criarBranch, nomeBranchValido, historico, arquivosDoCommit, diffDoCommit, lerArquivosDoCommit, lerStatus, lerLog, montarMensagem, ehSensivel, vincularArquivos, gitDisponivel } from './git.mjs';
 
 const temGit = await gitDisponivel();
 const ID1 = '11111111-1111-4111-8111-111111111111';
@@ -55,6 +55,16 @@ test('vincularArquivos liga o arquivo às conversas que o editaram, a mais recen
   const r = vincularArquivos([{ caminho: 'a.txt' }, { caminho: 'b.txt' }], chats, raiz, ['Edit', 'Write']);
   assert.deepEqual(r[0].conversas.map((c) => c.id), [ID2, ID1]);
   assert.deepEqual(r[1].conversas, []); // edição com erro não conta
+});
+
+test('vincularArquivos ignora edições anteriores ao último commit do arquivo', () => {
+  const raiz = path.resolve(os.tmpdir(), 'proj');
+  const chats = [
+    { id: ID1, title: 'A', messages: [{ tools: [{ nome: 'Edit', detalhe: path.join(raiz, 'a.txt'), ini: 10, estado: 'ok' }] }] },
+    { id: ID2, title: 'B', messages: [{ tools: [{ nome: 'Edit', detalhe: path.join(raiz, 'a.txt'), ini: 30, estado: 'ok' }] }] },
+  ];
+  const r = vincularArquivos([{ caminho: 'a.txt' }], chats, raiz, ['Edit'], new Map([['a.txt', 20]]));
+  assert.deepEqual(r[0].conversas.map((c) => c.id), [ID2]); // ID1 editou antes do último commit
 });
 
 test('estado, diff e commit com trailer', { skip: !temGit }, async () => {
@@ -123,7 +133,38 @@ test('listar, criar e trocar de branch (feature-*)', { skip: !temGit }, async ()
   assert.deepEqual(e.arquivos.map((a) => a.caminho), ['a.txt']);
   await assert.rejects(trocarBranch(dir, 'nao-existe'), /não existe/);
   assert.equal((await trocarBranch(dir, 'main')).mudou, false);
+  await assert.rejects(criarBranch(dir, 'feature-b', 'nao-existe'), /origem não existe/);
+  assert.deepEqual(await criarBranch(dir, 'feature-b', 'feature-login'), { ok: true, branch: 'feature-b' }); // parte de outra branch
+  assert.equal((await estado(dir)).branch, 'feature-b');
   assert.equal(await nomeBranchValido(dir, 'feature/ok-1.2'), 'feature/ok-1.2');
+});
+
+test('pull: junta uma branch remota (develop) na atual e desfaz em conflito', { skip: !temGit }, async () => {
+  const dir = repo(), remoto = tmp('bare-pull');
+  sh(remoto, 'init', '-q', '--bare', '-b', 'main');
+  sh(dir, 'remote', 'add', 'origin', remoto);
+  await enviar(dir);
+  sh(dir, 'switch', '-q', '-c', 'develop'); sh(dir, 'push', '-q', '-u', 'origin', 'develop');
+  const outro = tmp('clone');
+  sh(outro, 'clone', '-q', remoto, '.');
+  sh(outro, 'config', 'user.email', 'o@o.o'); sh(outro, 'config', 'user.name', 'Outro'); sh(outro, 'config', 'commit.gpgsign', 'false');
+  sh(outro, 'switch', '-q', 'develop');
+  fs.writeFileSync(path.join(outro, 'b.txt'), 'b\n'); sh(outro, 'add', '.'); sh(outro, 'commit', '-q', '-m', 'do outro'); sh(outro, 'push', '-q', 'origin', 'develop');
+  sh(dir, 'switch', '-q', '-c', 'feature-x'); // minha branch, sem o commit do outro
+  await assert.rejects(puxar(dir, 'origin/nao-existe'), /não existe/);
+  await assert.rejects(puxar(dir, 'lixo'), /Escolha/);
+  const r = await puxar(dir, 'origin/develop');
+  assert.deepEqual([r.atualizou, r.commits, r.remota], [true, 1, 'origin/develop']);
+  assert.equal(fs.readFileSync(path.join(dir, 'b.txt'), 'utf8').trim(), 'b');
+  assert.equal((await puxar(dir, 'origin/develop')).atualizou, false);
+  // conflito: o outro e eu mudamos a mesma linha
+  fs.writeFileSync(path.join(outro, 'a.txt'), 'outro\n'); sh(outro, 'commit', '-qam', 'a do outro'); sh(outro, 'push', '-q', 'origin', 'develop');
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'meu\n'); sh(dir, 'commit', '-qam', 'a meu');
+  const antes = sh(dir, 'rev-parse', 'HEAD');
+  await assert.rejects(puxar(dir, 'origin/develop'), /desfeito/);
+  assert.equal(sh(dir, 'rev-parse', 'HEAD'), antes);
+  assert.equal((await estado(dir)).arquivos.length, 0);
+  assert.ok((await estado(dir)).remotas.includes('origin/develop'));
 });
 
 test('lerArquivosDoCommit entende modificado, novo e renomeado (separados por NUL)', () => {

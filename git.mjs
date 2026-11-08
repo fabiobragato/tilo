@@ -83,7 +83,8 @@ export async function estado(pasta) {
   }
   const branches = comCommit ? (await git(raiz, ['for-each-ref', '--sort=refname', '--format=%(refname:short)', 'refs/heads'])).out.split(/\r?\n/).filter(Boolean) : [];
   const head = comCommit ? (await git(raiz, ['rev-parse', 'HEAD'])).out.trim() : '';
-  return { repo: true, head, raiz, relativa: path.relative(raiz, pasta).split(path.sep).join('/'), branch, branches, upstream: up, remotos, semRemoto, semUpstream, atras, arquivos, naoEnviados };
+  const remotas = remotos.length ? (await git(raiz, ['for-each-ref', '--sort=refname', '--format=%(refname:short)', 'refs/remotes'])).out.split(/\r?\n/).filter((r) => r && !/\/HEAD$/.test(r) && remotos.some((o) => r.startsWith(o + '/'))) : [];
+  return { repo: true, head, raiz, relativa: path.relative(raiz, pasta).split(path.sep).join('/'), branch, branches, remotas, upstream: up, remotos, semRemoto, semUpstream, atras, arquivos, naoEnviados };
 }
 
 // Diff de um arquivo alterado (só arquivos que realmente aparecem no status; segredos são recusados).
@@ -153,13 +154,16 @@ export async function trocarBranch(pasta, nome) {
 }
 
 // Cria uma branch nova a partir do ponto atual e já troca para ela. Alterações não commitadas vão junto.
-export async function criarBranch(pasta, nome) {
+// `base` (opcional): outra branch local ou remota (ex.: develop, origin/develop) para partir dela; vazio = ponto atual.
+export async function criarBranch(pasta, nome, base = '') {
   const e = await estado(pasta);
   if (!e.repo) throw new Error('Esta pasta não é um repositório git.');
   if (!e.branches.length) throw new Error('Faça o primeiro commit antes de criar branches.');
   const n = await nomeBranchValido(e.raiz, nome);
   if (e.branches.includes(n)) throw new Error(`A branch “${n}” já existe.`);
-  await git(e.raiz, ['switch', '-c', n]);
+  const b = String(base || '');
+  if (b && !e.branches.includes(b) && !e.remotas.includes(b)) throw new Error('A branch de origem não existe neste repositório.');
+  await git(e.raiz, b && b !== e.branch ? ['switch', '-c', n, '--no-track', b] : ['switch', '-c', n]);
   return { ok: true, branch: n };
 }
 
@@ -226,19 +230,55 @@ export async function enviar(pasta) {
   return { ok: true, enviados: e.naoEnviados.length };
 }
 
+// Pull: baixa o remoto e junta (merge) a branch remota escolhida na branch atual (ex.: origin/develop). Nunca reescreve histórico.
+// `remota` precisa ser uma branch remota conhecida (ex.: "origin/develop"). Em conflito, o merge é desfeito e nada muda.
+export async function puxar(pasta, remota) {
+  const e = await estado(pasta);
+  if (!e.repo) throw new Error('Esta pasta não é um repositório git.');
+  if (e.semRemoto) throw new Error('Este repositório não tem um remoto (GitHub) configurado.');
+  if (!e.branches.length) throw new Error('Faça o primeiro commit antes de puxar.');
+  const alvo = String(remota || e.upstream || '');
+  const remoto = e.remotos.find((o) => alvo.startsWith(o + '/'));
+  if (!remoto) throw new Error('Escolha de qual branch puxar.');
+  await git(e.raiz, ['fetch', '--prune', remoto], { timeout: 120_000 });
+  const depois = (await git(e.raiz, ['for-each-ref', '--format=%(refname:short)', 'refs/remotes'])).out.split(/\r?\n/);
+  if (!depois.includes(alvo) || /\/HEAD$/.test(alvo)) throw new Error(`A branch ${alvo} não existe no GitHub.`);
+  const antes = (await git(e.raiz, ['rev-parse', 'HEAD'])).out.trim();
+  try { await git(e.raiz, ['merge', '--no-edit', alvo], { timeout: 120_000 }); }
+  catch (err) {
+    await git(e.raiz, ['merge', '--abort'], { ok: [0, 128] }).catch(() => {});
+    throw new Error(`Não foi possível juntar ${alvo}: ${err.message} O merge foi desfeito e nada mudou. Resolva no terminal.`);
+  }
+  const novo = (await git(e.raiz, ['rev-parse', 'HEAD'])).out.trim();
+  const commits = novo === antes ? 0 : Number((await git(e.raiz, ['rev-list', '--count', `${antes}..${novo}`])).out.trim()) || 0;
+  return { ok: true, remota: alvo, atualizou: novo !== antes, commits };
+}
+
+// Instante (ms) do último commit que tocou cada arquivo rastreado; arquivos novos (nunca commitados) ficam de fora.
+export async function ultimoCommitPorArquivo(raiz, caminhos) {
+  const mapa = new Map();
+  await Promise.all(caminhos.slice(0, 200).map(async (c) => {
+    try { const t = Number((await git(raiz, ['log', '-1', '--format=%ct', '--', c])).out.trim()); if (t) mapa.set(c, t * 1000 + 999); } catch {}
+  }));
+  return mapa;
+}
+
 // Liga cada arquivo alterado às conversas que o editaram (Edit/Write registrados em chats.json).
 // `chats`: lista de conversas; `raizGit`: raiz do repositório; `ferramentas`: nomes das ferramentas de edição.
-export function vincularArquivos(arquivos, chats, raiz, ferramentas) {
+// `desde` (opcional): Map caminho-relativo -> instante (ms) do último commit que tocou o arquivo; edições feitas antes disso já foram commitadas e não contam.
+export function vincularArquivos(arquivos, chats, raiz, ferramentas, desde = new Map()) {
   const chave = (f) => path.resolve(f).toLowerCase();
+  const limite = new Map(arquivos.filter((a) => desde.get(a.caminho)).map((a) => [chave(path.join(raiz, a.caminho)), desde.get(a.caminho)]));
   const porArquivo = new Map();
   for (const c of chats) {
     for (const m of c.messages || []) {
       for (const t of m.tools || []) {
         if (!ferramentas.includes(t.nome) || t.estado === 'erro' || !t.detalhe || !path.isAbsolute(t.detalhe)) continue;
-        const k = chave(t.detalhe);
+        const k = chave(t.detalhe), quando = t.ini || m.ts || 0;
+        if (quando && limite.has(k) && quando <= limite.get(k)) continue;
         if (!porArquivo.has(k)) porArquivo.set(k, new Map());
         const mapa = porArquivo.get(k), ult = mapa.get(c.id);
-        mapa.set(c.id, Math.max(ult || 0, t.ini || m.ts || 0));
+        mapa.set(c.id, Math.max(ult || 0, quando));
       }
     }
   }
