@@ -608,6 +608,22 @@ async function core(req, res, url) {
             });
           } catch (err) { return send(res, 500, { erro: err.message }); }
         }
+        case '/api/alteracoes/historico': { // commits da branch atual, em páginas; cada um com a conversa do trailer Tilo-Chat e se já foi enviado
+          try {
+            const h = await gitx.historico(P().ROOT, { limite: url.searchParams.get('limite'), pular: url.searchParams.get('pular') });
+            if (!h.repo) return send(res, 200, h);
+            const titulos = new Map(Object.values(loadChats().chats).filter((c) => !c.gen).map((c) => [c.id, c.title || 'Conversa']));
+            return send(res, 200, { ...h, commits: h.commits.map((c) => ({ ...c, conversas: c.chats.map((id) => ({ id, titulo: titulos.get(id) || null })) })) });
+          } catch (err) { return send(res, 500, { erro: err.message }); }
+        }
+        case '/api/alteracoes/commit-arquivos': {
+          try { return send(res, 200, await gitx.arquivosDoCommit(P().ROOT, url.searchParams.get('sha') || '')); }
+          catch (err) { return send(res, 400, { erro: err.message }); }
+        }
+        case '/api/alteracoes/commit-diff': {
+          try { return send(res, 200, await gitx.diffDoCommit(P().ROOT, url.searchParams.get('sha') || '', url.searchParams.get('arquivo') || '')); }
+          catch (err) { return send(res, 400, { erro: err.message }); }
+        }
         case '/api/alteracoes/diff': {
           try { return send(res, 200, await gitx.diff(P().ROOT, url.searchParams.get('arquivo') || '')); }
           catch (err) { return send(res, 400, { erro: err.message }); }

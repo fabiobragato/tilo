@@ -50,6 +50,9 @@ Cobre as rotas HTTP de `server.mjs`, o formato das respostas, os limites e os c�
 | `/api/biblioteca/rascunho?lote=&item=&original=1` | Conteúdo de um rascunho (ou do original). |
 | `/api/permissoes` | Regras de fábrica, pacotes, comandos lembrados, bloqueios e itens de produção do projeto. |
 | `/api/alteracoes` | Git visual: branch, remoto, arquivos não commitados (cada um com as conversas que o editaram) e commits não enviados (com a conversa do trailer `Tilo-Chat`). `{ repo: false }` se a pasta não for git. Ver [../business/alteracoes.md](../business/alteracoes.md). |
+| `/api/alteracoes/historico?limite=&pular=` | Commits da branch atual (até 100 por página, padrão 20), com `enviado` (algum remoto já tem; `null` sem remoto), `mais` e a conversa do trailer `Tilo-Chat`. |
+| `/api/alteracoes/commit-arquivos?sha=` | Arquivos de um commit (`caminho`, `antigo`, `rotulo`, `sensivel`). 400 se o commit não existir. |
+| `/api/alteracoes/commit-diff?sha=&arquivo=` | Diff de um arquivo dentro do commit. Mesmas recusas e limite do diff de arquivo alterado. |
 | `/api/alteracoes/diff?arquivo=` | Diff de um arquivo alterado. Recusa arquivos fora do status e segredos (`.env`, `.ssh`, `.pem`, `id_*`, `.token`); corta em 500.000 caracteres. |
 
 Restrições de `/api/file`: o primeiro segmento do caminho precisa estar em `pastasLegiveis` do projeto (padrão: `docs`, `planning`, `pendencias`, `apps`, `infra`); caminhos com `.env` são recusados (403); arquivo inexistente ou maior que 500.000 bytes responde 404.

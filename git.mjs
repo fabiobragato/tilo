@@ -82,7 +82,8 @@ export async function estado(pasta) {
     }
   }
   const branches = comCommit ? (await git(raiz, ['for-each-ref', '--sort=refname', '--format=%(refname:short)', 'refs/heads'])).out.split(/\r?\n/).filter(Boolean) : [];
-  return { repo: true, raiz, relativa: path.relative(raiz, pasta).split(path.sep).join('/'), branch, branches, upstream: up, remotos, semRemoto, semUpstream, atras, arquivos, naoEnviados };
+  const head = comCommit ? (await git(raiz, ['rev-parse', 'HEAD'])).out.trim() : '';
+  return { repo: true, head, raiz, relativa: path.relative(raiz, pasta).split(path.sep).join('/'), branch, branches, upstream: up, remotos, semRemoto, semUpstream, atras, arquivos, naoEnviados };
 }
 
 // Diff de um arquivo alterado (só arquivos que realmente aparecem no status; segredos são recusados).
@@ -160,6 +161,54 @@ export async function criarBranch(pasta, nome) {
   if (e.branches.includes(n)) throw new Error(`A branch “${n}” já existe.`);
   await git(e.raiz, ['switch', '-c', n]);
   return { ok: true, branch: n };
+}
+
+// ---------- histórico ----------
+const SHA = /^[0-9a-f]{7,40}$/;
+async function shaValido(raiz, sha) {
+  if (!SHA.test(String(sha))) throw new Error('Commit inválido.');
+  try { return (await git(raiz, ['rev-parse', '--verify', '--quiet', `${sha}^{commit}`])).out.trim(); } catch { throw new Error('Esse commit não existe neste repositório.'); }
+}
+// `git show --name-status -z`: "M NUL caminho NUL" e, para renomeados, "R100 NUL antigo NUL novo NUL"
+export function lerArquivosDoCommit(saida) {
+  const t = String(saida).split(' ').filter((x, i, a) => !(i === a.length - 1 && x === '')), arquivos = [];
+  for (let i = 0; i < t.length; i++) {
+    const cod = t[i][0];
+    if (cod === 'R' || cod === 'C') { arquivos.push({ caminho: t[i + 2], antigo: t[i + 1], rotulo: ROTULOS[cod] }); i += 2; }
+    else { arquivos.push({ caminho: t[i + 1], antigo: '', rotulo: ROTULOS[cod] || 'modificado' }); i += 1; }
+  }
+  return arquivos.filter((a) => a.caminho);
+}
+// Commits da branch atual, do mais novo ao mais antigo, em páginas. `enviado`: algum remoto já tem o commit (null se não há remoto).
+export async function historico(pasta, { limite = 20, pular = 0 } = {}) {
+  const raiz = await raizGit(pasta);
+  if (!raiz) return { repo: false };
+  if (!(await temCommit(raiz))) return { repo: true, commits: [], mais: false };
+  const n = Math.min(Math.max(Number(limite) || 20, 1), 100), sk = Math.max(Number(pular) || 0, 0);
+  const lista = lerLog((await git(raiz, ['log', 'HEAD', `--format=${FORMATO_LOG}`, '-n', String(n + 1), '--skip', String(sk)])).out);
+  const temRemoto = (await git(raiz, ['remote'])).out.trim().length > 0;
+  const naoEnv = temRemoto ? new Set((await git(raiz, ['log', 'HEAD', '--not', '--remotes', '--format=%H'])).out.split(/\r?\n/).filter(Boolean)) : null;
+  const commits = lista.slice(0, n).map((c) => ({ ...c, enviado: naoEnv ? !naoEnv.has(c.sha) : null }));
+  return { repo: true, commits, mais: lista.length > n };
+}
+// Arquivos de um commit.
+export async function arquivosDoCommit(pasta, sha) {
+  const raiz = await raizGit(pasta);
+  if (!raiz) throw new Error('Esta pasta não é um repositório git.');
+  const completo = await shaValido(raiz, sha);
+  const arquivos = lerArquivosDoCommit((await git(raiz, ['show', '--name-status', '-z', '-M', '--format=', completo])).out);
+  return { sha: completo, arquivos: arquivos.map((a) => ({ ...a, sensivel: ehSensivel(a.caminho) || ehSensivel(a.antigo) })) };
+}
+// Diff de um arquivo dentro de um commit (só arquivos que o commit realmente alterou; segredos recusados).
+export async function diffDoCommit(pasta, sha, caminho) {
+  const { sha: completo, arquivos } = await arquivosDoCommit(pasta, sha);
+  const a = arquivos.find((x) => x.caminho === caminho);
+  if (!a) throw new Error('Esse arquivo não faz parte do commit.');
+  if (a.sensivel) throw new Error('O conteúdo deste arquivo não é exibido (pode ter segredos).');
+  const raiz = await raizGit(pasta);
+  const texto = (await git(raiz, ['show', '--no-color', '--format=', '-M', completo, '--', a.caminho])).out;
+  const cortado = texto.length > MAX_DIFF;
+  return { caminho: a.caminho, diff: cortado ? texto.slice(0, MAX_DIFF) : texto, cortado };
 }
 
 // Envia ao GitHub (sem --force). Sem upstream, cria o vínculo com `origin`.

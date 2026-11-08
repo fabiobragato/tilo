@@ -667,6 +667,9 @@ document.addEventListener('click', async (e) => {
       case 'alt-diff': await altDiff(d.p); break;
       case 'alt-commit': await altCommit(); break;
       case 'alt-push': await altPush(); break;
+      case 'alt-hist-abrir': await altCommitAbrir(d.sha); break;
+      case 'alt-hist-diff': await altCommitDiff(d.sha, d.p); break;
+      case 'alt-hist-mais': await loadHistorico(false); break;
       case 'alt-nova-branch': await altNovaBranch(); break;
       case 'alt-recarregar': await loadAlteracoes(true); toast('Atualizado'); break;
       case 'page': S.page[d.key] = Number(d.p); render(); window.scrollTo({ top: 0 }); break;
@@ -999,7 +1002,8 @@ function renderPermissoes() {
 // ---------- alterações (git visual) ----------
 // S.alt: dados (resposta de /api/alteracoes), sel (arquivos marcados para o commit), vistos (arquivos já apresentados; os novos entram marcados),
 // fora (conversas desmarcadas), extra (conversas vinculadas à mão), msg (mensagem do commit), abertos/diffs (diffs expandidos), busy.
-S.alt = { dados: null, sel: new Set(), vistos: new Set(), fora: new Set(), extra: new Set(), msg: '', abertos: new Set(), diffs: {}, busy: false, sig: '', erro: '' };
+// S.alt.hist: histórico de commits (commits, mais, chave = head+não enviados para saber quando recarregar, abertos = commits expandidos, arqs/diffs por commit).
+S.alt = { hist: { commits: [], mais: false, carregando: false, chave: '', abertos: new Set(), arqs: {}, diffs: {}, erro: '' }, dados: null, sel: new Set(), vistos: new Set(), fora: new Set(), extra: new Set(), msg: '', abertos: new Set(), diffs: {}, busy: false, sig: '', erro: '' };
 const altTotal = () => (S.alt.dados?.repo ? S.alt.dados.arquivos.length + S.alt.dados.naoEnviados.length : 0);
 async function loadAlteracoes(forcar) {
   try {
@@ -1013,6 +1017,7 @@ async function loadAlteracoes(forcar) {
       for (const c of [...A.sel]) if (!atuais.has(c)) A.sel.delete(c);
       for (const c of Object.keys(A.diffs)) if (!atuais.has(c)) { delete A.diffs[c]; A.abertos.delete(c); }
     }
+    if (g.repo) { const chave = g.head + ':' + g.branch + ':' + g.naoEnviados.length; if (A.hist.chave !== chave) { A.hist.chave = chave; loadHistorico(true); } }
   } catch (x) { S.alt.dados = null; S.alt.erro = x.message; }
   renderNav();
   if (route() === 'alteracoes' && !document.activeElement?.closest?.('#alt-root textarea')) renderAlteracoes();
@@ -1070,7 +1075,55 @@ function renderAlteracoes() {
     <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-upload"></i></span><h3>Commitado, mas não enviado ao GitHub</h3><span class="muted small">${ult}</span></div><div class="card-body">
       ${aviso ? `<p class="muted small">${esc(aviso)}</p>` : ''}
       ${ult ? `<ul class="alt-list">${commits}</ul>` : '<div class="muted small">Nenhum commit esperando envio.</div>'}
-      ${ult && !g.semRemoto ? `<div class="alt-actions"><button class="btn primary" data-act="alt-push" ${A.busy ? 'disabled' : ''} title="Envia os commits para o GitHub (git push, nunca forçado)"><i class="pi pi-upload"></i> Enviar ${ult} commit${ult === 1 ? '' : 's'} ao GitHub</button></div>` : ''}</div></div>`;
+      ${ult && !g.semRemoto ? `<div class="alt-actions"><button class="btn primary" data-act="alt-push" ${A.busy ? 'disabled' : ''} title="Envia os commits para o GitHub (git push, nunca forçado)"><i class="pi pi-upload"></i> Enviar ${ult} commit${ult === 1 ? '' : 's'} ao GitHub</button></div>` : ''}</div></div>
+    ${altHistoricoHtml()}`;
+}
+async function loadHistorico(reiniciar) {
+  const H = S.alt.hist;
+  if (H.carregando) return;
+  H.carregando = true; H.erro = '';
+  try {
+    const r = await api('/api/alteracoes/historico?limite=20&pular=' + (reiniciar ? 0 : H.commits.length));
+    H.commits = reiniciar ? r.commits || [] : H.commits.concat(r.commits || []);
+    H.mais = !!r.mais;
+    if (reiniciar) { H.abertos.clear(); H.arqs = {}; H.diffs = {}; }
+  } catch (x) { H.erro = x.message; }
+  H.carregando = false;
+  if (route() === 'alteracoes') renderAlteracoes();
+}
+async function altCommitAbrir(sha) {
+  const H = S.alt.hist;
+  if (H.abertos.has(sha)) { H.abertos.delete(sha); renderAlteracoes(); return; }
+  H.abertos.add(sha); renderAlteracoes();
+  if (!H.arqs[sha]) { try { H.arqs[sha] = await api('/api/alteracoes/commit-arquivos?sha=' + sha); } catch (x) { H.arqs[sha] = { erro: x.message, arquivos: [] }; } renderAlteracoes(); }
+}
+async function altCommitDiff(sha, caminho) {
+  const H = S.alt.hist, k = sha + '|' + caminho;
+  if (H.diffs[k]) { delete H.diffs[k]; renderAlteracoes(); return; }
+  H.diffs[k] = { carregando: true }; renderAlteracoes();
+  try { H.diffs[k] = await api('/api/alteracoes/commit-diff?sha=' + sha + '&arquivo=' + encodeURIComponent(caminho)); } catch (x) { H.diffs[k] = { erro: x.message }; }
+  renderAlteracoes();
+}
+function altHistoricoHtml() {
+  const H = S.alt.hist;
+  const lista = H.commits.map((c) => {
+    const aberto = H.abertos.has(c.sha), ar = H.arqs[c.sha];
+    const arqs = !aberto ? '' : !ar ? '<div class="muted small">Carregando…</div>' : ar.erro ? `<div class="muted small">${esc(ar.erro)}</div>` : `<ul class="alt-arqs">${ar.arquivos.map((a) => {
+      const k = c.sha + '|' + a.caminho, d = H.diffs[k];
+      return `<li><div class="alt-row">${badge(a.rotulo, a.rotulo === 'novo' ? 'success' : a.rotulo === 'apagado' ? 'danger' : 'info')}<code class="alt-path">${esc(a.caminho)}</code>${a.antigo ? `<span class="muted small">(era ${esc(a.antigo)})</span>` : ''}
+        ${a.sensivel ? '' : `<button class="btn sm" data-act="alt-hist-diff" data-sha="${c.sha}" data-p="${esc(a.caminho)}" title="${d ? 'Esconde' : 'Mostra'} o que mudou neste arquivo neste commit"><i class="pi ${d ? 'pi-chevron-up' : 'pi-eye'}"></i> ${d ? 'Esconder' : 'Ver mudanças'}</button>`}</div>
+        ${d ? `<pre class="alt-diff">${d.carregando ? 'Carregando…' : d.erro ? esc(d.erro) : altDiffHtml(d.diff) + (d.cortado ? '<span class="hunk">… diff cortado (arquivo grande)</span>' : '')}</pre>` : ''}</li>`;
+    }).join('')}</ul>`;
+    const env = c.enviado === null ? '' : c.enviado ? badge('no GitHub', 'success', 'pi-check') : badge('não enviado', 'warn', 'pi-upload');
+    return `<li class="alt-commit"><div class="alt-row"><code>${esc(c.curto)}</code><b>${esc(c.assunto)}</b>${env}<span class="muted small">${esc(c.autor)} · ${new Date(c.quando).toLocaleDateString('pt-BR')} (há ${ago(c.quando)})</span>
+      <span class="alt-conv">${c.conversas.length ? c.conversas.map(altChip).join('') : '<span class="muted small" title="Este commit não tem a linha Tilo-Chat (foi feito fora do Tilo ou antes deste recurso)">sem conversa vinculada</span>'}
+      <button class="btn sm" data-act="alt-hist-abrir" data-sha="${c.sha}" title="${aberto ? 'Esconde' : 'Mostra'} os arquivos deste commit"><i class="pi ${aberto ? 'pi-chevron-up' : 'pi-folder-open'}"></i> ${aberto ? 'Esconder' : 'Arquivos'}</button></span></div>${arqs}</li>`;
+  }).join('');
+  return `<div class="card"><div class="card-head"><span class="ico"><i class="pi pi-history"></i></span><h3>Histórico</h3><span class="muted small">${H.commits.length}${H.mais ? '+' : ''}</span></div><div class="card-body">
+    <p class="muted small">Os commits da branch atual, do mais novo ao mais antigo, com a conversa de cada um e se já está no GitHub.</p>
+    ${H.erro ? `<div class="muted small">${esc(H.erro)}</div>` : ''}
+    ${H.commits.length ? `<ul class="alt-list">${lista}</ul>` : H.carregando ? '<div class="muted small">Carregando…</div>' : '<div class="muted small">Nenhum commit ainda.</div>'}
+    ${H.mais ? `<div class="alt-actions"><button class="btn" data-act="alt-hist-mais" ${H.carregando ? 'disabled' : ''} title="Carrega os próximos 20 commits"><i class="pi pi-angle-down"></i> Carregar mais</button></div>` : ''}</div></div>`;
 }
 async function altDiff(caminho) {
   const A = S.alt;

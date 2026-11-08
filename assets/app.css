@@ -514,3 +514,4 @@ a.btn{text-decoration:none}
 .alt-chk{display:inline-flex;gap:5px;align-items:center;font-size:.78rem}
 .alt-actions{display:flex;justify-content:flex-end;margin-top:10px}
 .alt-branch{display:inline-flex;gap:6px;align-items:center;color:var(--primary)}
+.alt-arqs{list-style:none;margin:8px 0 0 12px;padding:0 0 0 12px;border-left:2px solid var(--border-soft);display:flex;flex-direction:column;gap:8px}

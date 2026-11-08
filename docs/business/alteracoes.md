@@ -8,6 +8,8 @@ A aba **Alterações** (`#/alteracoes`) mostra o repositório git do projeto: o 
 - **Branch:** menu com as branches locais para trocar, e botão **Nova branch** (sugere o prefixo `feature-`; cria a partir da branch atual e já troca). Alterações não commitadas acompanham a troca; se conflitarem, o git recusa e o aviso aparece. Não dá para trocar enquanto o Claude trabalha no projeto (os arquivos mudariam debaixo dele). Branches só remotas não aparecem na lista.
 - **Ainda não commitado:** arquivos modificados, novos, apagados ou renomeados, cada um com as conversas que o editaram. "Ver mudanças" abre o diff do arquivo.
 - **Commitado, mas não enviado:** commits que o GitHub ainda não tem, cada um com a conversa ligada. Sem upstream, vale todo commit que nenhum remoto tem.
+- **Histórico:** os commits da branch atual, do mais novo ao mais antigo (20 por vez, "Carregar mais"). Cada um mostra se já está no GitHub, a conversa ligada e, ao abrir, os arquivos e o diff de cada um. Recarrega sozinho quando muda o último commit, a branch ou a lista de não enviados. "No GitHub" vale quando algum remoto já tem o commit.
+- **Sem git:** se a pasta do projeto não está dentro de um repositório, a aba mostra o aviso "não é um repositório git". Se o programa `git` não estiver instalado, mostra "O git não foi encontrado neste computador". Projeto numa subpasta de um repositório funciona normalmente.
 - A tela se atualiza sozinha a cada 8 segundos; o contador no menu soma arquivos não commitados e commits não enviados.
 
 ## Vínculo com a conversa

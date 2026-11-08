@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { estado, diff, commitar, enviar, trocarBranch, criarBranch, nomeBranchValido, lerStatus, lerLog, montarMensagem, ehSensivel, vincularArquivos, gitDisponivel } from './git.mjs';
+import { estado, diff, commitar, enviar, trocarBranch, criarBranch, nomeBranchValido, historico, arquivosDoCommit, diffDoCommit, lerArquivosDoCommit, lerStatus, lerLog, montarMensagem, ehSensivel, vincularArquivos, gitDisponivel } from './git.mjs';
 
 const temGit = await gitDisponivel();
 const ID1 = '11111111-1111-4111-8111-111111111111';
@@ -124,4 +124,34 @@ test('listar, criar e trocar de branch (feature-*)', { skip: !temGit }, async ()
   await assert.rejects(trocarBranch(dir, 'nao-existe'), /não existe/);
   assert.equal((await trocarBranch(dir, 'main')).mudou, false);
   assert.equal(await nomeBranchValido(dir, 'feature/ok-1.2'), 'feature/ok-1.2');
+});
+
+test('lerArquivosDoCommit entende modificado, novo e renomeado (separados por NUL)', () => {
+  const nul = String.fromCharCode(0);
+  const r = lerArquivosDoCommit(['M', 'a.txt', 'A', 'b.txt', 'R100', 'velho.txt', 'novo.txt', ''].join(nul));
+  assert.deepEqual(r.map((x) => [x.caminho, x.antigo, x.rotulo]), [['a.txt', '', 'modificado'], ['b.txt', '', 'novo'], ['novo.txt', 'velho.txt', 'renomeado']]);
+});
+
+test('histórico: páginas, enviado ou não, arquivos e diff do commit', { skip: !temGit }, async () => {
+  const dir = repo();
+  assert.equal((await historico(dir)).commits[0].enviado, null); // sem remoto
+  const remoto = tmp('bare2');
+  sh(remoto, 'init', '-q', '--bare', '-b', 'main');
+  sh(dir, 'remote', 'add', 'origin', remoto);
+  await enviar(dir);
+  for (const n of ['b', 'c']) { fs.writeFileSync(path.join(dir, n + '.txt'), n + '\n'); await commitar(dir, [n + '.txt'], 'Cria ' + n, n === 'b' ? [ID1] : []); }
+  const h = await historico(dir, { limite: 2 });
+  assert.deepEqual(h.commits.map((c) => [c.assunto, c.enviado]), [['Cria c', false], ['Cria b', false]]);
+  assert.deepEqual(h.commits[1].chats, [ID1]);
+  assert.equal(h.mais, true);
+  const p2 = await historico(dir, { limite: 2, pular: 2 });
+  assert.deepEqual(p2.commits.map((c) => [c.assunto, c.enviado]), [['inicial', true]]);
+  assert.equal(p2.mais, false);
+  const ar = await arquivosDoCommit(dir, h.commits[0].sha);
+  assert.deepEqual(ar.arquivos.map((a) => [a.caminho, a.rotulo]), [['c.txt', 'novo']]);
+  assert.match((await diffDoCommit(dir, h.commits[0].curto, 'c.txt')).diff, /\+c/);
+  await assert.rejects(diffDoCommit(dir, h.commits[0].sha, 'b.txt'), /não faz parte/);
+  await assert.rejects(arquivosDoCommit(dir, 'zzzz'), /inválido/);
+  await assert.rejects(arquivosDoCommit(dir, '0123456'), /não existe/);
+  assert.deepEqual(await historico(tmp('vazio2')), { repo: false });
 });
