@@ -395,6 +395,7 @@ function gitBarHtml(g) {
     : badge(g.branch || 'sem branch', 'primary', 'pi-sitemap')}
     ${g.branches.length ? `<span class="sep"></span><button class="btn sm" data-act="chat-nova-branch" ${dis} title="Cria uma branch nova a partir das suas alterações locais (branch atual) ou de outra branch, e já troca para ela."><i class="pi pi-plus"></i> Nova branch</button>` : ''}
     ${g.branches.length ? `<button class="btn sm" data-act="commit-modal" ${dis} title="${n ? 'Escolhe os arquivos alterados, escreve a mensagem e cria o commit' : 'Não há alterações para commitar'}"><i class="pi pi-check-circle"></i> Commitar${n ? ` <span class="badge tone-primary">${n}</span>` : ''}</button>` : ''}
+    ${g.semRemoto ? '' : `<button class="btn sm" data-act="alt-push" ${dis || (g.naoEnviados.length ? '' : 'disabled')} title="${g.naoEnviados.length ? `Push: envia ${g.naoEnviados.length} commit${g.naoEnviados.length === 1 ? '' : 's'} desta branch para o GitHub (nunca forçado)` : 'Push: não há commits esperando envio'}"><i class="pi pi-upload"></i> Push${g.naoEnviados.length ? ` <span class="badge tone-warning">${g.naoEnviados.length}</span>` : ''}</button>`}
     ${g.semRemoto ? '' : `<button class="btn sm" data-act="alt-pull" ${dis} title="Pull: baixa as novidades do GitHub e junta uma branch remota (por exemplo origin/develop) na branch atual. Se der conflito, o Tilo desfaz e nada muda."><i class="pi pi-download"></i> Pull${g.atras ? ` <span class="badge tone-warning">${g.atras}</span>` : ''}</button>`}`;
 }
 // Modal de commit: lista os arquivos alterados (marcar, ver mudanças), mensagem e conversas ligadas. Usa o mesmo estado da aba Alterações (S.alt).
@@ -1302,7 +1303,7 @@ async function altBranch(acao, nome, base = '') {
 async function altPush() {
   const A = S.alt, n = A.dados?.naoEnviados.length || 0;
   if (!(await confirmar({ titulo: `Enviar ${n} commit${n === 1 ? '' : 's'} ao GitHub?`, texto: 'Isso publica os commits no repositório remoto (git push). É uma ação de produção e fica registrada na auditoria.', ok: 'Enviar', perigo: true, icone: 'pi-upload' }))) return;
-  A.busy = true; renderAlteracoes();
+  A.busy = true; renderAlteracoes(); renderChatGit();
   try { const r = await api('/api/alteracoes/push', {}); toast(`${r.enviados} commit${r.enviados === 1 ? '' : 's'} enviado${r.enviados === 1 ? '' : 's'}`); }
   catch (x) { toast(x.message); }
   A.busy = false; await loadAlteracoes(true);
