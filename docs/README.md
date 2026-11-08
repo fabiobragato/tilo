@@ -36,7 +36,7 @@ Define as regras e fluxos do produto: projetos, pendências, conversas, sessões
 
 - `README.md`, `projetos.md`, `pendencias.md`, `conversas-claude.md`, `sessoes-terminal.md`
 - `aprovacao-de-comandos.md`, `permissoes-do-projeto.md`, `documentacao-com-claude.md`
-- `biblioteca-de-documentos.md`, `auditoria.md`
+- `biblioteca-de-documentos.md`, `auditoria.md`, `licenciamento.md`
 
 ---
 

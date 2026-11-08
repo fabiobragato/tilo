@@ -3,7 +3,8 @@
 [![Testes](https://github.com/fabiobragato/tilo/actions/workflows/ci.yml/badge.svg)](https://github.com/fabiobragato/tilo/actions/workflows/ci.yml)
 ![Node 20+](https://img.shields.io/badge/node-%3E%3D20-339933)
 ![Dependências: nenhuma](https://img.shields.io/badge/depend%C3%AAncias-nenhuma-blue)
-[![Licença MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-green)](LICENSE)
+[![Licença: PolyForm Noncommercial](https://img.shields.io/badge/licen%C3%A7a-PolyForm%20Noncommercial-orange)](LICENSE)
+![Código disponível, não open source](https://img.shields.io/badge/c%C3%B3digo-source--available-lightgrey)
 
 **Um painel local para quem trabalha com projetos de software e usa o Claude Code.** Você escolhe um projeto e, num só lugar, vê o que falta decidir e fazer, conversa com o Claude sobre o código, acompanha o que ele alterou e **aprova na tela, em português, cada comando que ele quer executar**.
 
@@ -233,4 +234,19 @@ Para contribuir, leia o [`CLAUDE.md`](CLAUDE.md) (regras do projeto) e confira s
 
 ## Licença
 
-[MIT](LICENSE). O Tilo inclui os ícones do [PrimeIcons](https://github.com/primefaces/primeicons) (também MIT; ver `assets/PRIMEICONS-LICENSE`). O tom das respostas (`tom.mjs`) é adaptado do plugin Caveman (MIT); o aviso está no cabeçalho do arquivo.
+O Tilo é **source-available**: o código é público, mas **não é open source** no sentido da [Open Source Definition da OSI](https://opensource.org/osd), porque o uso comercial é restrito.
+
+| | Community | Business |
+|---|---|---|
+| Custo | Grátis | Pago (valores em definição) |
+| Licença | [PolyForm Noncommercial 1.0.0](LICENSE) | Autorização comercial separada ([COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)) |
+| Para quem | Uso pessoal, estudo, pesquisa e organizações sem fins lucrativos, de ensino ou governamentais, nos termos da licença | Empresas e profissionais que usam o Tilo em atividade comercial, inclusive freelancers em projetos remunerados |
+| Instalação | Local | Local (a diferença é o direito de uso, não o software) |
+
+Dúvida se o seu uso é comercial? Veja [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md) ou escreva para fabio_bragato@hotmail.com.
+
+**Support Tilo development.** O patrocínio voluntário (GitHub Sponsors, ainda não ativado) ajuda a manter o projeto e **não concede licença comercial**.
+
+O Tilo inclui os ícones do [PrimeIcons](https://github.com/primefaces/primeicons) (MIT; ver `assets/PRIMEICONS-LICENSE`). O tom das respostas (`tom.mjs`) é adaptado do plugin Caveman (MIT); o aviso está no cabeçalho do arquivo. Esses avisos continuam valendo para esses componentes. O nome "Tilo" e a identidade visual não são licenciados por este arquivo.
+
+Para contribuir, veja [CONTRIBUTING.md](CONTRIBUTING.md); para segurança, [SECURITY.md](SECURITY.md).

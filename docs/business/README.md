@@ -17,5 +17,6 @@ O Tilo é uma ferramenta local para o dono de projetos de software: ele escolhe 
 - [consumo-de-tokens.md](consumo-de-tokens.md): tokens por conversa e consumo estimado do dia e da semana.
 - [alteracoes.md](alteracoes.md): aba Alterações, o git visual com vínculo à conversa.
 - [auditoria.md](auditoria.md): registro das decisões.
+- [licenciamento.md](licenciamento.md): licença source-available, Community × Business, contribuições e marca.
 
 Conceitos ainda em aberto ficam em [../../planning/](../../planning/README.md); pendências do dono em [../../pendencias/](../../pendencias/README.md).
