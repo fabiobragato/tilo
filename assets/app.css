@@ -548,3 +548,22 @@ dialog.cdlg.cm{width:min(760px,95vw)}
 .anexo-chip{display:flex;align-items:center;gap:8px;border:1px solid var(--primary-border);background:var(--primary-soft);border-radius:10px;padding:5px 10px;font-size:.78rem}
 .anexo-chip[hidden]{display:none}
 .anexo-chip .btn{margin-left:auto}
+
+/* página de conversa: botões e textos menores (escopo .chat-main; vem por último para sobrepor) */
+.chat-main .btn{height:30px;padding:0 .7rem;gap:.35rem;font-size:.75rem}
+.chat-main .btn.sm{height:26px;padding:0 .55rem;font-size:.7rem}
+.chat-main .btn .pi{font-size:.85rem}
+.chat-main .btn.sm .pi{font-size:.78rem}
+.chat-main .dd-btn,.chat-main .dd-chat .dd-btn{height:30px;font-size:.72rem;padding:0 .55rem}
+.chat-head .ttl{font-size:.84rem}
+.chat-tabs button{padding:6px 10px;font-size:.72rem}
+.chat-log{gap:12px;padding:14px 14px}
+.msg .av{width:26px;height:26px;font-size:.7rem}
+.bubble{padding:8px 12px;font-size:.78rem;line-height:1.5}
+.bubble pre.cb{font-size:.7rem}
+.bubble h4{font-size:.82rem}
+.bubble table{font-size:.7rem}
+.meta{font-size:.6rem}
+.composer textarea{min-height:56px;font-size:.78rem}
+.chipbtn{font-size:.66rem;padding:2px 9px}
+.hint,.runstate{font-size:.66rem}
