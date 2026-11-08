@@ -31,6 +31,7 @@ const TOKEN = (() => {
   return t;
 })();
 const MAX_BODY = 200_000;
+const ANEXO_MAX = 300_000; // plano .md anexado a uma mensagem do chat (caracteres)
 // Chave gravada na conversa -> id completo enviado ao claude (a versão fica explícita; para atualizar uma versão, troque só aqui e em MODELOS de assets/app.js).
 const MODEL_IDS = { fable: 'claude-fable-5-1', opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' };
 const MODELS = Object.keys(MODEL_IDS);
@@ -601,9 +602,10 @@ async function core(req, res, url) {
             if (!e.repo) return send(res, 200, { repo: false });
             const chats = Object.values(loadChats().chats).filter((c) => !c.gen);
             const titulos = new Map(chats.map((c) => [c.id, c.title || 'Conversa']));
+            const desde = await gitx.ultimoCommitPorArquivo(e.raiz, e.arquivos.filter((a) => !a.naoRastreado).map((a) => a.caminho));
             return send(res, 200, {
               ...e,
-              arquivos: gitx.vincularArquivos(e.arquivos, chats, e.raiz, FERRAMENTAS_EDICAO).map((a) => ({ ...a, sensivel: gitx.ehSensivel(a.caminho) })),
+              arquivos: gitx.vincularArquivos(e.arquivos, chats, e.raiz, FERRAMENTAS_EDICAO, desde).map((a) => ({ ...a, sensivel: gitx.ehSensivel(a.caminho) })),
               naoEnviados: e.naoEnviados.map((c) => ({ ...c, conversas: c.chats.map((id) => ({ id, titulo: titulos.get(id) || null })) })),
             });
           } catch (err) { return send(res, 500, { erro: err.message }); }
@@ -675,7 +677,7 @@ async function core(req, res, url) {
     }
     if (req.method !== 'POST') return send(res, 405, { erro: 'método' });
     if (!/^application\/json/.test(req.headers['content-type'] || '')) return send(res, 415, { erro: 'use JSON' });
-    const body = await readBody(req, (url.pathname === '/api/projetos' || url.pathname === '/api/projetos/editar') ? 4_500_000 : MAX_BODY); // cadastro de projeto aceita imagens (até 1,5 MB cada)
+    const body = await readBody(req, (url.pathname === '/api/projetos' || url.pathname === '/api/projetos/editar') ? 4_500_000 : url.pathname === '/api/chat/enviar' ? 1_000_000 : MAX_BODY); // cadastro de projeto aceita imagens (até 1,5 MB cada)
 
     switch (url.pathname) {
       case '/api/projetos': { // cadastrar projeto (opcionalmente cria a estrutura base do padrão de documentação, sem sobrescrever nada)
@@ -888,7 +890,16 @@ async function core(req, res, url) {
       }
       case '/api/chat/enviar': {
         const c = loadChats().chats[body.id];
-        const text = str(body.text, 20_000).trim();
+        const msgDono = str(body.text, 20_000).trim();
+        // Plano em .md anexado: o conteúdo vai ao Claude junto da mensagem; o histórico guarda só nome e tamanho.
+        let anexo = null;
+        if (body.anexo) {
+          const nome = str(body.anexo.nome, 120).replace(/[\r\n]/g, ' ').trim(), conteudo = String(body.anexo.texto ?? '');
+          if (!/\.(md|markdown)$/i.test(nome) || !conteudo.trim()) return send(res, 400, { erro: 'anexo: envie um arquivo .md com conteúdo' });
+          if (conteudo.length > ANEXO_MAX) return send(res, 413, { erro: `anexo: o plano passa de ${ANEXO_MAX} caracteres` });
+          anexo = { nome, chars: conteudo.length, conteudo };
+        }
+        const text = anexo ? `${msgDono || 'Leia o plano anexado e me diga como podemos seguir.'}\n\n--- Plano anexado: ${anexo.nome} ---\n${anexo.conteudo}\n--- Fim do plano ---` : msgDono;
         if (!c || !text) return send(res, 400, { erro: 'conversa/texto' });
         if (c.closed) return send(res, 409, { erro: 'esta conversa está encerrada; reabra para continuar' });
         const mid = /^[0-9a-f-]{8,64}$/i.test(String(body.mid || '')) ? String(body.mid) : crypto.randomUUID();
@@ -900,8 +911,8 @@ async function core(req, res, url) {
         vistos.add(mid); if (vistos.size > 200) vistos.delete(vistos.values().next().value);
         // Com o Claude trabalhando, a mensagem vai para a fila nativa do Claude Code e só entra no histórico quando ele a lê (ordem real).
         if (j) { entregar(c, { id: mid, text, ts: Date.now(), persistido: false }); return send(res, 200, chatView(c)); }
-        if (c.title === 'Nova conversa' && !c.messages.some((m) => m.role === 'user')) c.title = tituloDaMensagem(text) || c.title; // nome sugerido: início da 1ª mensagem
-        c.messages.push({ role: 'user', text, ts: Date.now(), mid, model: MODELS.includes(c.model) ? c.model : DEFAULT_MODEL, plan: c.plan });
+        if (c.title === 'Nova conversa' && !c.messages.some((m) => m.role === 'user')) c.title = tituloDaMensagem(msgDono || anexo?.nome || '') || c.title; // nome sugerido: início da 1ª mensagem
+        c.messages.push({ role: 'user', text: msgDono || (anexo ? `(plano anexado: ${anexo.nome})` : ''), ts: Date.now(), mid, model: MODELS.includes(c.model) ? c.model : DEFAULT_MODEL, plan: c.plan, ...(anexo ? { anexo: { nome: anexo.nome, chars: anexo.chars } } : {}) });
         c.updated = Date.now();
         saveChat(c);
         startJob(c, text, { mid, persistido: true });
@@ -1012,10 +1023,21 @@ async function core(req, res, url) {
         const criar = body.acao === 'criar';
         if (!criar && body.acao !== 'trocar') return send(res, 400, { erro: 'ação inválida' });
         try {
-          const r = criar ? await gitx.criarBranch(P().ROOT, str(body.nome, 100)) : await gitx.trocarBranch(P().ROOT, str(body.nome, 100));
+          const r = criar ? await gitx.criarBranch(P().ROOT, str(body.nome, 100), str(body.base, 200)) : await gitx.trocarBranch(P().ROOT, str(body.nome, 100));
           audit(P(), { chat: '-', tool: 'git', resumo: `${criar ? 'criou e trocou para' : 'trocou para'} a branch ${r.branch}`, risco: 'normal', decisao: 'liberado', quem: 'dono', motivo: 'seletor de branch da aba Alterações' });
           return send(res, 200, r);
         } catch (err) { return send(res, 400, { erro: err.message }); }
+      }
+      case '/api/alteracoes/pull': { // baixa e junta uma branch remota na branch atual; não com o Claude trabalhando (os arquivos mudariam debaixo dele)
+        if ([...jobs.values()].some((j) => !j.done && j.proj.id === P().id)) return send(res, 409, { erro: 'O Claude está trabalhando neste projeto. Espere terminar (ou pare a conversa) antes de dar pull.' });
+        try {
+          const r = await gitx.puxar(P().ROOT, str(body.remota, 200));
+          audit(P(), { chat: '-', tool: 'git', resumo: `pull de ${r.remota} (${r.commits} commit(s))`, risco: 'normal', decisao: 'liberado', quem: 'dono', motivo: 'botão Pull do chat' });
+          return send(res, 200, r);
+        } catch (err) {
+          audit(P(), { chat: '-', tool: 'git', resumo: 'pull falhou', risco: 'normal', decisao: 'erro', quem: 'dono', motivo: String(err.message).slice(0, 300) });
+          return send(res, 400, { erro: err.message });
+        }
       }
       case '/api/alteracoes/push': { // envia os commits ao GitHub (nunca com --force); é ação de produção, a UI confirma antes
         try {

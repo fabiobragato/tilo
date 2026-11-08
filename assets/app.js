@@ -113,7 +113,7 @@ const S = {
   avisados: new Set(), // planos pendentes de outras conversas que já abriram a conversa uma vez
   page: { pend: 1, sess: 1, arq: 1 }, size: { pend: 10, sess: 6, arq: 12 },
   f: { sec: 0, prio: '', stat: 'ativos', q: '', sessTab: 'painel', hid: false, area: '', hideEnc: true },
-  draft: {}, collapsed: ls.get('tilo.sidebar-collapsed', '0') === '1',
+  draft: {}, anexo: {}, collapsed: ls.get('tilo.sidebar-collapsed', '0') === '1',
 };
 const st = (id) => S.state.items[id] || { status: 'aberto' };
 const items = () => S.sections.flatMap((s) => s.items);
@@ -352,7 +352,7 @@ function renderArq() {
 const curChat = () => (S.sel?.kind === 'chat' ? S.chats.find((c) => c.id === S.sel.id) : null);
 const curTerm = () => (S.sel?.kind === 'term' ? S.term.find((x) => x.id === S.sel.id) : null);
 function viewChat() {
-  return `<div class="page-head"><div><h1 class="page-title">Conversar com Claude</h1><p class="page-sub">Usa a sua assinatura do Claude. Comandos: <code>/plan</code> e <code>/model fable|opus|sonnet|haiku</code>.</p></div>
+  return `<div class="page-head"><div><h1 class="page-title">Conversar com Claude</h1><div class="chat-git" id="chat-git"></div></div>
     <button class="btn primary" data-act="new-chat" title="Abre uma conversa nova com o Claude neste projeto"><i class="pi pi-plus"></i> Nova conversa</button></div>
   <div class="chat-layout">
     <aside class="card chat-list"><div class="hd">Conversas</div><div class="bd" id="cl-body"></div></aside>
@@ -367,9 +367,10 @@ function viewChat() {
           <button class="btn primary sm" data-act="plan-continuar" title="Desliga o modo plan e manda o Claude executar o plano"><i class="pi pi-play"></i> Sair do planejamento e continuar</button>
           <button class="btn sm" data-act="plan-sair" title="Só desliga o modo plan; você escreve a próxima mensagem"><i class="pi pi-sign-out"></i> Só sair do planejamento</button></div>
         <div class="quick" id="quick">${[['Explique', 'Explique essa pendência em linguagem simples: o que é, por que importa e o que acontece se eu não fizer.'], ['Passo a passo', 'Me dê o passo a passo para eu fazer isso, com comandos exatos quando houver.'], ['Já está feito?', 'Confira no código e em docs/ se isso já está resolvido. Diga com evidência (arquivo e linha).'], ['Recomende', 'Dê uma recomendação clara com prós e contras, para eu decidir.']].map(([l, p]) => `<button class="chipbtn" data-act="quick" data-p="${esc(p)}" title="${esc(p)}">${l}</button>`).join('')}</div>
+        <div class="anexo-chip" id="anexo-chip" hidden></div>
         <textarea id="msg" placeholder="Pergunte algo… ou use /plan, /model opus (Ctrl+Enter envia)"></textarea>
         <div class="bar"><div class="runinfo"><span class="hint" id="hint"></span><span class="runstate" id="runstate" hidden></span></div>
-          <div class="sendrow"><div class="dd" id="dd-tom"></div><div class="dd" id="dd-modelo"></div><div class="dd" id="dd-modo"></div>
+          <div class="sendrow"><input type="file" id="anexo-in" accept=".md,.markdown,text/markdown" hidden><button class="btn" id="anexar" data-act="anexar" title="Anexa um plano em .md (até 300 mil caracteres) à próxima mensagem. O Claude lê o conteúdo; o histórico guarda só o nome."><i class="pi pi-paperclip"></i> Plano .md</button><div class="dd" id="dd-tom"></div><div class="dd" id="dd-modelo"></div><div class="dd" id="dd-modo"></div>
             <button class="btn danger" id="stop" data-act="stop" hidden title="Interrompe o que o Claude está fazendo agora (como Esc no terminal). A conversa continua."><i class="pi pi-stop-circle"></i> Parar</button><button class="btn primary" id="send" data-act="send" title="Enviar (Ctrl+Enter). Com o Claude trabalhando, a mensagem entra na fila e ele a lê no próximo passo."><i class="pi pi-send"></i> Enviar</button></div></div>
       </div>
       <div class="composer" id="closed-bar" hidden><span class="muted small">Esta conversa foi encerrada. O histórico fica guardado; reabra para continuar conversando.</span>
@@ -378,8 +379,118 @@ function viewChat() {
         <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" data-act="continue-term" title="Cria uma conversa nova no painel, levando o final desta sessão como contexto"><i class="pi pi-sparkles"></i> Continuar no painel</button><button class="btn" data-act="resume" title="Copia o comando para retomar esta sessão no terminal" data-id="${S.sel?.id || ''}"><i class="pi pi-copy"></i> Copiar claude --resume</button></div></div>
     </section></div>`;
 }
+// Branch do projeto no topo do chat: trocar de branch e dar pull (juntar uma branch remota, ex.: origin/develop, na atual).
+function renderChatGit() {
+  const root = $('#chat-git'); if (!root) return;
+  if (root.contains(document.activeElement) && document.activeElement.closest('.dd-menu')) return; // não fecha o menu aberto
+  const A = S.alt, g = A.dados;
+  if (!g) { root.innerHTML = A.erro ? `<span class="muted small">${esc(A.erro)}</span>` : ''; return; }
+  if (!g.repo) { root.innerHTML = '<span class="muted small"><i class="pi pi-info-circle"></i> Projeto sem git: não há branch para mostrar.</span>'; return; }
+  root.innerHTML = gitBarHtml(g);
+}
+// Barra de git (chat e aba Alterações): branch, Nova branch, Commitar (abre o modal com os arquivos) e Pull.
+function gitBarHtml(g) {
+  const dis = S.alt.busy ? 'disabled' : '', n = g.arquivos.length;
+  return `${g.branches.length ? `<label class="alt-branch" title="Branch atual. Escolha outra para trocar; as alterações não commitadas acompanham você, se não houver conflito."><i class="pi pi-sitemap"></i>
+      <select class="sel sm" data-chg="alt-branch" aria-label="Branch atual" ${dis}>${g.branches.map((b) => `<option value="${esc(b)}" ${b === g.branch ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select></label>`
+    : badge(g.branch || 'sem branch', 'primary', 'pi-sitemap')}
+    ${g.branches.length ? `<span class="sep"></span><button class="btn sm" data-act="chat-nova-branch" ${dis} title="Cria uma branch nova a partir das suas alterações locais (branch atual) ou de outra branch, e já troca para ela."><i class="pi pi-plus"></i> Nova branch</button>` : ''}
+    ${g.branches.length ? `<button class="btn sm" data-act="commit-modal" ${dis} title="${n ? 'Escolhe os arquivos alterados, escreve a mensagem e cria o commit' : 'Não há alterações para commitar'}"><i class="pi pi-check-circle"></i> Commitar${n ? ` <span class="badge tone-primary">${n}</span>` : ''}</button>` : ''}
+    ${g.semRemoto ? '' : `<button class="btn sm" data-act="alt-push" ${dis || (g.naoEnviados.length ? '' : 'disabled')} title="${g.naoEnviados.length ? `Push: envia ${g.naoEnviados.length} commit${g.naoEnviados.length === 1 ? '' : 's'} desta branch para o GitHub (nunca forçado)` : 'Push: não há commits esperando envio'}"><i class="pi pi-upload"></i> Push${g.naoEnviados.length ? ` <span class="badge tone-warning">${g.naoEnviados.length}</span>` : ''}</button>`}
+    ${g.semRemoto ? '' : `<button class="btn sm" data-act="alt-pull" ${dis} title="Pull: baixa as novidades do GitHub e junta uma branch remota (por exemplo origin/develop) na branch atual. Se der conflito, o Tilo desfaz e nada muda."><i class="pi pi-download"></i> Pull${g.atras ? ` <span class="badge tone-warning">${g.atras}</span>` : ''}</button>`}`;
+}
+// Modal de commit: lista os arquivos alterados (marcar, ver mudanças), mensagem e conversas ligadas. Usa o mesmo estado da aba Alterações (S.alt).
+function abrirCommitModal() {
+  const dlg = $('#cdlg'), A = S.alt;
+  if (!A.dados?.repo) return;
+  if (dlg.open) { const antigo = dlg.onclose; dlg.close(); antigo?.(); }
+  A.modal = true; dlg.classList.remove('prod'); dlg.classList.add('cm');
+  dlg.onclick = (e) => { if (e.target === dlg) dlg.close(); };
+  dlg.onclose = () => { if (dlg.open) return; A.modal = false; dlg.classList.remove('cm'); dlg.onclick = dlg.onclose = null; };
+  renderCommitModal(true); dlg.showModal();
+}
+function renderCommitModal(forcar) {
+  const A = S.alt, dlg = $('#cdlg'), g = A.dados;
+  if (!A.modal || !dlg.open && !forcar) return;
+  if (!g?.repo) { dlg.close(); return; }
+  if (!forcar && dlg.contains(document.activeElement) && document.activeElement.tagName === 'TEXTAREA') return; // não atrapalha quem está digitando
+  const lista0 = dlg.querySelector('.cm-lista'), rolagem = lista0 ? lista0.scrollTop : 0;
+  const nSel = A.sel.size, conv = altConversasDoCommit(), outras = S.chats.filter((c) => !c.gen && !conv.some((x) => x.id === c.id));
+  const arqs = g.arquivos.map((a) => {
+    const tom = a.rotulo === 'novo' ? 'success' : a.rotulo === 'apagado' || a.rotulo === 'conflito' ? 'danger' : 'info', aberto = A.abertos.has(a.caminho), df = A.diffs[a.caminho];
+    return `<li class="alt-file"><div class="alt-row">
+      <input type="checkbox" class="sw" data-chg="alt-sel" data-p="${esc(a.caminho)}" ${A.sel.has(a.caminho) ? 'checked' : ''} ${a.sensivel ? 'disabled' : ''} title="${a.sensivel ? 'Parece conter segredos: o Tilo não commita este arquivo' : 'Incluir este arquivo no commit'}" aria-label="Incluir ${esc(a.caminho)} no commit">
+      ${badge(a.rotulo, tom)}<code class="alt-path">${esc(a.caminho)}</code>${a.antigo ? `<span class="muted small">(era ${esc(a.antigo)})</span>` : ''}
+      <span class="alt-conv">${a.conversas.map((c) => c.titulo == null ? '' : `<span class="alt-chip off" title="Editado na conversa “${esc(c.titulo)}”"><i class="pi pi-comment"></i> ${esc(short(c.titulo, 24))}</span>`).join('')}
+      ${a.sensivel ? '' : `<button class="btn sm" data-act="alt-diff" data-p="${esc(a.caminho)}" title="${aberto ? 'Esconde' : 'Mostra'} o que mudou neste arquivo"><i class="pi ${aberto ? 'pi-chevron-up' : 'pi-eye'}"></i> ${aberto ? 'Esconder' : 'Ver mudanças'}</button>`}</span></div>
+      ${aberto ? `<pre class="alt-diff">${df ? (df.erro ? esc(df.erro) : altDiffHtml(df.diff) + (df.cortado ? '\n<span class="hunk">… diff cortado (arquivo grande)</span>' : '')) : 'Carregando…'}</pre>` : ''}</li>`;
+  }).join('');
+  const msg = dlg.querySelector('#alt-msg-m');
+  dlg.innerHTML = `<div class="ahd"><span class="aic"><i class="pi pi-check-circle"></i></span><div class="att"><b>Commitar em ${esc(g.branch)}</b></div></div>
+    <div class="abd">${g.arquivos.length ? `<div class="cm-topo"><span class="muted small">${nSel} de ${g.arquivos.length} arquivo${g.arquivos.length === 1 ? '' : 's'} marcado${nSel === 1 ? '' : 's'}</span>
+        <button class="btn sm" data-act="cm-marcar" data-v="1">Marcar todos</button><button class="btn sm" data-act="cm-marcar" data-v="0">Desmarcar</button></div>
+      <ul class="alt-list cm-lista">${arqs}</ul>
+      <div class="cdlg-campos"><label for="alt-msg-m">Mensagem do commit</label><textarea id="alt-msg-m" class="inp alt-msg" rows="3" maxlength="4000" placeholder="Descreva o que mudou" data-alt="msg">${esc(msg ? msg.value : A.msg)}</textarea></div>
+      <div class="alt-vinc"><span class="muted small">Conversas ligadas:</span>${conv.length ? conv.map((c) => `<label class="alt-chk"><input type="checkbox" data-chg="alt-conv" data-id="${c.id}" ${c.marcada ? 'checked' : ''}> ${esc(short(c.titulo, 30))}</label>`).join('') : '<span class="muted small">nenhuma</span>'}
+        ${outras.length ? `<select class="sel sm" data-chg="alt-addchat" aria-label="Ligar outra conversa"><option value="">Ligar outra conversa…</option>${outras.map((c) => `<option value="${c.id}">${esc(short(c.title, 40))}</option>`).join('')}</select>` : ''}</div>`
+      : '<div class="muted small">Nada para commitar: tudo o que foi alterado já está num commit.</div>'}</div>
+    <div class="aft"><span class="muted small">Cria um commit local; nada vai ao GitHub.</span><span class="sp"></span><button type="button" class="btn" data-act="cm-fechar">Fechar</button>
+      ${g.arquivos.length ? `<button type="button" class="btn primary" data-act="alt-commit" data-modal="1" ${A.busy || !nSel ? 'disabled' : ''} title="Cria um commit só com os arquivos marcados"><i class="pi pi-check"></i> Commitar ${nSel} arquivo${nSel === 1 ? '' : 's'}</button>` : ''}</div>`;
+  const nova = dlg.querySelector('.cm-lista'); if (nova) nova.scrollTop = rolagem;
+}
+// Nova branch: nome + ponto de partida (alterações locais = branch atual, ou outra branch local/remota).
+async function pedirNovaBranch(g) {
+  const dlg = $('#cdlg');
+  if (dlg.open) { const antigo = dlg.onclose; dlg.close(); antigo?.(); }
+  const outras = [...g.branches.filter((b) => b !== g.branch), ...(g.remotas || [])];
+  return new Promise((resolve) => {
+    let r = null;
+    dlg.classList.remove('prod');
+    dlg.innerHTML = `<div class="ahd"><span class="aic"><i class="pi pi-sitemap"></i></span><div class="att"><b>Nova branch</b></div></div>
+      <div class="abd"><div class="cdlg-campos"><label for="cdlg-nome">Nome da branch</label><input class="input" id="cdlg-nome" type="text" maxlength="100" value="feature-" autocomplete="off">
+        <label for="cdlg-base">Partir de</label>
+        <select class="sel" id="cdlg-base" aria-label="Ponto de partida"><option value="" data-d="Leva as alterações não commitadas junto">${esc(g.branch)} · alterações locais (atual)</option>${outras.map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join('')}</select></div>
+        <p class="cdetalhe">Partindo de outra branch, as alterações não commitadas acompanham você se não houver conflito.</p></div>
+      <div class="aft"><span class="sp"></span><button type="button" class="btn" data-c="no">Cancelar</button><button type="button" class="btn primary" data-c="ok">Criar e trocar</button></div>`;
+    const ok = () => { const nome = $('#cdlg-nome', dlg).value.trim(); if (!nome) return; r = { nome, base: $('#cdlg-base', dlg).value }; dlg.close(); };
+    dlg.onclick = (e) => { const b = e.target.closest('[data-c]'); if (b) { if (b.dataset.c === 'ok') ok(); else dlg.close(); } else if (e.target === dlg && !e.target.closest('.dd-menu')) dlg.close(); };
+    $('#cdlg-nome', dlg).onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); ok(); } };
+    dlg.onclose = () => { if (dlg.open) return; dlg.onclick = dlg.onclose = null; resolve(r); };
+    dlg.showModal(); const c = $('#cdlg-nome', dlg); c.focus(); c.setSelectionRange(c.value.length, c.value.length);
+  });
+}
+async function chatNovaBranch() {
+  const g = S.alt.dados; if (!g?.repo) return;
+  const r = await pedirNovaBranch(g); if (r) await altBranch('criar', r.nome, r.base);
+}
+// Escolha da branch remota para o pull (menu padrão: <select class="sel">, transformado pelo combo.js).
+async function pedirPull(g) {
+  const dlg = $('#cdlg');
+  if (dlg.open) { const antigo = dlg.onclose; dlg.close(); antigo?.(); }
+  const ops = g.remotas || [], padrao = g.upstream && ops.includes(g.upstream) ? g.upstream : (ops.find((r) => /\/develop$/.test(r)) || ops[0] || '');
+  return new Promise((resolve) => {
+    let r = null;
+    dlg.classList.remove('prod');
+    dlg.innerHTML = `<div class="ahd"><span class="aic"><i class="pi pi-download"></i></span><div class="att"><b>Pull na branch ${esc(g.branch)}</b></div></div>
+      <div class="abd"><p class="ctexto">Baixa o GitHub e junta a branch escolhida na <b>${esc(g.branch)}</b> (git fetch + merge). Use, por exemplo, para trazer a <b>develop</b> com o trabalho dos outros. Se houver conflito, o merge é desfeito e nada muda.</p>
+      ${ops.length ? `<select class="sel" id="cdlg-pull" aria-label="Branch do GitHub para juntar">${ops.map((o) => `<option value="${esc(o)}" ${o === padrao ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>` : '<p class="cdetalhe">Nenhuma branch remota conhecida ainda.</p>'}</div>
+      <div class="aft"><span class="sp"></span><button type="button" class="btn" data-c="no">Cancelar</button><button type="button" class="btn primary" data-c="ok" ${ops.length ? '' : 'disabled'}>Fazer pull</button></div>`;
+    dlg.onclick = (e) => { const b = e.target.closest('[data-c]'); if (b) { if (b.dataset.c === 'ok') { r = $('#cdlg-pull', dlg)?.value || null; dlg.close(); } else dlg.close(); } else if (e.target === dlg && !e.target.closest('.dd-menu')) dlg.close(); };
+    dlg.onclose = () => { if (dlg.open) return; dlg.onclick = dlg.onclose = null; resolve(r); };
+    dlg.showModal();
+  });
+}
+async function altPull() {
+  const A = S.alt, g = A.dados; if (!g?.repo) return;
+  const remota = await pedirPull(g); if (!remota) return;
+  A.busy = true; renderChatGit();
+  try { const r = await api('/api/alteracoes/pull', { remota }); toast(r.atualizou ? `Pull de ${r.remota}: ${r.commits} commit${r.commits === 1 ? '' : 's'} trazido${r.commits === 1 ? '' : 's'}` : `Já está em dia com ${r.remota}`); }
+  catch (x) { toast(x.message); }
+  A.busy = false; await loadAlteracoes(true);
+}
 function updateChat() {
   if (route() !== 'chat' || !$('#cl-body')) return;
+  renderChatGit();
   // lista lateral
   const nEnc = S.chats.filter((c) => c.closed).length;
   const painel = [...S.chats].sort((a, b) => !!a.closed - !!b.closed) // encerradas ao final (sort estável preserva a ordem por data)
@@ -427,6 +538,7 @@ function updateChat() {
   const key = JSON.stringify([c.id, c.messages.length, c.running, c.ocupado, c.segundoPlano, (c.fila || []).map((f) => f.id), c.modo, c.model, c.closed, c.doc]);
   if (S.chatKey === key) return; S.chatKey = key;
   const ta = $('#msg'); if (ta.dataset.cid !== c.id) { ta.value = S.draft[c.id] || ''; ta.dataset.cid = c.id; }
+  pintarAnexo();
   const log = $('#chat-log'), perto = log.scrollHeight - log.scrollTop - log.clientHeight < 80 || log.dataset.cid !== c.id; // só rola sozinho se o dono já estava no fim
   log.dataset.cid = c.id;
   const aguardando = new Set((c.fila || []).map((f) => f.id)), pendentes = (c.fila || []).filter((f) => !f.persistido);
@@ -509,7 +621,7 @@ function bubble(m, ro, aguardando) {
   const u = m.role === 'user';
   if (!u && !m.text && m.tools?.length) return `<div class="act-line">${resumoAcoes(m.tools)}</div>`; // resposta só com ações: sem bolha vazia
   const estado = u && m.naoLida ? '<div class="meta err"><i class="pi pi-exclamation-triangle"></i> não chegou a ser lida pelo Claude — envie de novo</div>' : u && aguardando ? '<div class="meta"><i class="pi pi-clock"></i> enviada, ainda não lida</div>' : '';
-  return `<div class="msg ${u ? 'u' : 'a'} ${m.erro || m.naoLida ? 'erro' : ''}"><div class="av">${u ? 'EU' : '<i class="pi pi-sparkles"></i>'}</div><div class="bubble">${u ? esc(m.text) + estado : (m.text ? md(m.text) : '') + (m.tools?.length ? `<div class="act-wrap">${resumoAcoes(m.tools)}</div>` : '')}${!u ? `<div class="meta">${mname(m.modeloId || m.model)}${m.plan ? ' · plan' : ''}${m.interrompido ? ' · interrompida' : ''}</div>` : ''}</div></div>`;
+  return `<div class="msg ${u ? 'u' : 'a'} ${m.erro || m.naoLida ? 'erro' : ''}"><div class="av">${u ? 'EU' : '<i class="pi pi-sparkles"></i>'}</div><div class="bubble">${u ? esc(m.text) + (m.anexo ? `<div class="meta"><i class="pi pi-paperclip"></i> ${esc(m.anexo.nome)} · ${Number(m.anexo.chars).toLocaleString('pt-BR')} caracteres</div>` : '') + estado : (m.text ? md(m.text) : '') + (m.tools?.length ? `<div class="act-wrap">${resumoAcoes(m.tools)}</div>` : '')}${!u ? `<div class="meta">${mname(m.modeloId || m.model)}${m.plan ? ' · plan' : ''}${m.interrompido ? ' · interrompida' : ''}</div>` : ''}</div></div>`;
 }
 // Plano do Claude (modo plan): card dentro do chat, com o plano completo e botões Sim/Não. Não usa o modal.
 function renderPlano(planos) {
@@ -630,27 +742,45 @@ async function cfg(patch) {
 const ALIAS = { fable: 'fable', sonnet: 'sonnet', opus: 'opus', haiku: 'haiku', padrao: 'sonnet', 'padrão': 'sonnet', default: 'sonnet', '': 'sonnet' };
 async function send(textArg) {
   // Nunca bloqueia por "o Claude está trabalhando": a mensagem entra na fila nativa do Claude Code (ver docs/business/conversas-claude.md).
-  const c = curChat(); const ta = $('#msg'); let text = (textArg ?? ta.value).trim(); if (!c || !text) return;
+  const c = curChat(); const ta = $('#msg'); let text = (textArg ?? ta.value).trim(); const anexo = textArg === undefined ? S.anexo[c?.id] : null; if (!c || (!text && !anexo)) return;
   let m;
-  if ((m = text.match(/^\/modo(?:\s+(\S*))?$/i))) {
+  if (!anexo && (m = text.match(/^\/modo(?:\s+(\S*))?$/i))) {
     const v = (m[1] || '').toLowerCase(), k = { plan: 'plan', planejamento: 'plan', perguntar: 'perguntar', ask: 'perguntar', editar: 'editar', normal: 'editar', auto: 'auto', automatico: 'auto', 'automático': 'auto', leitura: 'leitura' }[v];
     if (!k) { toast('Modos: perguntar, editar, plan, auto, leitura'); return; }
     ta.value = ''; S.draft[c.id] = ''; hint(); await cfg({ modo: k }); toast('Modo: ' + MODOS[k][0]); return;
   }
-  if ((m = text.match(/^\/model(?:\s+(\S*))?$/i))) {
+  if (!anexo && (m = text.match(/^\/model(?:\s+(\S*))?$/i))) {
     const v = (m[1] || '').toLowerCase();
     if (!(v in ALIAS)) { toast('Modelos: fable, opus, sonnet (padrão), haiku'); return; }
     ta.value = ''; S.draft[c.id] = ''; hint(); await cfg({ model: ALIAS[v] }); toast('Modelo: ' + MODELS[ALIAS[v]]); return;
   }
-  if ((m = text.match(/^\/plan(?:\s+([\s\S]+))?$/i))) {
+  if (!anexo && (m = text.match(/^\/plan(?:\s+([\s\S]+))?$/i))) {
     if (!m[1]) { ta.value = ''; S.draft[c.id] = ''; hint(); await cfg({ plan: !c.plan }); toast(curChat().plan ? 'Plan ligado' : 'Plan desligado'); return; }
     await cfg({ plan: true }); text = m[1].trim();
-  } else if (text.startsWith('/')) { toast('Comandos disponíveis: /plan, /model e /modo'); return; }
+  } else if (!anexo && text.startsWith('/')) { toast('Comandos disponíveis: /plan, /model e /modo'); return; }
   ta.value = ''; S.draft[c.id] = ''; hint();
   const mid = crypto.randomUUID(); // o servidor ignora o mesmo id repetido (reenvio de rede) e assim nada é duplicado
-  try { Object.assign(c, await api('/api/chat/enviar', { id: c.id, text, mid })); S.chatKey = null; updateChat(); await loadChats(); }
-  catch (x) { if (!ta.value) { ta.value = text; S.draft[c.id] = text; } toast(x.message); } // falhou: devolve o texto à caixa, nada se perde
+  if (anexo) { delete S.anexo[c.id]; pintarAnexo(); }
+  try { Object.assign(c, await api('/api/chat/enviar', { id: c.id, text, mid, ...(anexo ? { anexo } : {}) })); S.chatKey = null; updateChat(); await loadChats(); }
+  catch (x) { if (!ta.value) { ta.value = text; S.draft[c.id] = text; } if (anexo && !S.anexo[c.id]) { S.anexo[c.id] = anexo; pintarAnexo(); } toast(x.message); } // falhou: devolve o texto à caixa, nada se perde
 }
+// Plano .md anexado à próxima mensagem (por conversa). O arquivo é lido no navegador; o servidor valida nome e tamanho.
+const ANEXO_MAX = 300_000;
+function pintarAnexo() {
+  const box = $('#anexo-chip'), c = curChat(); if (!box) return;
+  const a = c && S.anexo[c.id]; box.hidden = !a;
+  box.innerHTML = a ? `<i class="pi pi-file"></i><b>${esc(a.nome)}</b><span class="muted small">${a.texto.length.toLocaleString('pt-BR')} caracteres</span><button type="button" class="btn sm" data-act="anexo-rm" title="Remove o plano anexado"><i class="pi pi-times"></i></button>` : '';
+}
+document.addEventListener('change', async (e) => {
+  if (e.target.id !== 'anexo-in') return;
+  const f = e.target.files[0], c = curChat(); e.target.value = ''; if (!f || !c) return;
+  if (!/\.(md|markdown)$/i.test(f.name)) { toast('Anexe um arquivo .md'); return; }
+  if (f.size > ANEXO_MAX * 3) { toast('Arquivo grande demais (máx. 300 mil caracteres)'); return; }
+  const texto = await f.text();
+  if (!texto.trim()) { toast('O arquivo está vazio'); return; }
+  if (texto.length > ANEXO_MAX) { toast('O plano passa de 300 mil caracteres'); return; }
+  S.anexo[c.id] = { nome: f.name, texto }; pintarAnexo(); $('#msg')?.focus();
+});
 function hint() {
   const v = $('#msg')?.value || '', h = $('#hint'); if (!h) return;
   h.textContent = /^\/mo[dD]/i.test(v) ? '/modo perguntar · editar · plan · auto · leitura' : /^\/m/i.test(v) ? '/model fable · opus · sonnet · haiku' : /^\/p/i.test(v) ? '/plan alterna o modo plan · /plan <texto> envia já em plan' : v.startsWith('/') ? 'Comandos: /plan  /model  /modo' : '';
@@ -682,12 +812,16 @@ document.addEventListener('click', async (e) => {
     switch (act) {
       case 'go': location.hash = '#/' + d.to; break;
       case 'alt-diff': await altDiff(d.p); break;
-      case 'alt-commit': await altCommit(); break;
+      case 'alt-commit': await altCommit(!!d.modal); break;
+      case 'commit-modal': abrirCommitModal(); break;
+      case 'cm-fechar': $('#cdlg').close(); break;
+      case 'cm-marcar': { const A = S.alt; A.sel.clear(); if (d.v === '1') for (const a of A.dados?.arquivos || []) if (!a.sensivel) A.sel.add(a.caminho); renderAlteracoes(); break; }
       case 'alt-push': await altPush(); break;
       case 'alt-hist-abrir': await altCommitAbrir(d.sha); break;
       case 'alt-hist-diff': await altCommitDiff(d.sha, d.p); break;
       case 'alt-hist-pag': await loadHistorico(false, Number(d.p)); break;
-      case 'alt-nova-branch': await altNovaBranch(); break;
+      case 'alt-pull': await altPull(); break;
+      case 'chat-nova-branch': await chatNovaBranch(); break;
       case 'alt-recarregar': await loadAlteracoes(true); toast('Atualizado'); break;
       case 'page': S.page[d.key] = Number(d.p); render(); window.scrollTo({ top: 0 }); break;
       case 'sec': S.f.sec = Number(d.n); S.page.pend = 1; render(); break;
@@ -720,6 +854,8 @@ document.addEventListener('click', async (e) => {
         await send('Plano aprovado. O modo planejamento foi desligado. Pode executar o plano agora.');
         break;
       }
+      case 'anexar': $('#anexo-in')?.click(); break;
+      case 'anexo-rm': { const c = curChat(); if (c) { delete S.anexo[c.id]; pintarAnexo(); } break; }
       case 'send': send(); break;
       case 'aprovar': case 'negar': case 'aprovar-sessao': case 'aprovar-lembrar': {
         const box = el.closest('.adlg'); box.querySelectorAll('button').forEach((b) => { b.disabled = true; });
@@ -1039,6 +1175,8 @@ async function loadAlteracoes(forcar) {
   renderNav();
   if (route() === 'alteracoes' && !document.activeElement?.closest?.('#alt-root textarea')) renderAlteracoes();
   else if (route() === 'visao') render();
+  else if (route() === 'chat') renderChatGit();
+  if (route() !== 'alteracoes') renderCommitModal();
 }
 const altConversasDoCommit = () => { // conversas que entram no commit: as que editaram os arquivos marcados + as vinculadas à mão, menos as desmarcadas
   const A = S.alt, m = new Map();
@@ -1052,6 +1190,7 @@ function altDiffHtml(texto) {
   return texto.split('\n').map((l) => `<span class="${l.startsWith('+') && !l.startsWith('+++') ? 'add' : l.startsWith('-') && !l.startsWith('---') ? 'del' : l.startsWith('@@') ? 'hunk' : ''}">${esc(l) || ' '}</span>`).join('');
 }
 function renderAlteracoes() {
+  renderCommitModal(); // o modal de commit (aberto em qualquer tela) acompanha o mesmo estado
   const root = $('#alt-root'); if (!root) return;
   const A = S.alt, g = A.dados;
   const cab = (sub) => `<div class="page-head"><div><h1 class="page-title">Alterações</h1><p class="page-sub">${sub}</p></div></div>`;
@@ -1083,10 +1222,7 @@ function renderAlteracoes() {
       <span class="alt-conv">${c.conversas.length ? c.conversas.map(altChip).join('') : '<span class="muted small" title="Este commit não tem a linha Tilo-Chat (foi feito fora do Tilo ou antes deste recurso)">sem conversa vinculada</span>'}</span></div></li>`).join('');
   const aviso = g.semRemoto ? 'Este repositório não tem um remoto (GitHub) configurado.' : g.atras ? `O GitHub tem ${g.atras} commit${g.atras === 1 ? '' : 's'} que você ainda não baixou.` : g.semUpstream ? 'Esta branch ainda não existe no GitHub; o envio vai criá-la.' : '';
   root.innerHTML = `${cab('O que mudou no projeto e ainda não está no GitHub — e de qual conversa veio cada mudança.')}
-    <div class="alt-top">${g.branches.length ? `<label class="alt-branch" title="Branch atual. Escolha outra para trocar; as alterações não commitadas acompanham você, se não houver conflito."><i class="pi pi-sitemap"></i>
-        <select class="sel sm" data-chg="alt-branch" aria-label="Branch atual" ${A.busy ? 'disabled' : ''}>${g.branches.map((b) => `<option value="${esc(b)}" ${b === g.branch ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select></label>
-        <button class="btn sm" data-act="alt-nova-branch" title="Cria uma branch nova a partir daqui (ex.: feature-login) e já troca para ela" ${A.busy ? 'disabled' : ''}><i class="pi pi-plus"></i> Nova branch</button>`
-      : badge(g.branch || 'sem branch', 'primary', 'pi-sitemap')}${remoto}${g.relativa ? `<span class="muted small">pasta do projeto: ${esc(g.relativa)}</span>` : ''}
+    <div class="alt-top"><div class="chat-git">${gitBarHtml(g)}</div>${remoto}${g.relativa ? `<span class="muted small">pasta do projeto: ${esc(g.relativa)}</span>` : ''}
       <button class="btn sm" data-act="alt-recarregar" title="Lê o estado do git de novo"><i class="pi pi-refresh"></i> Atualizar</button></div>
     <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-pencil"></i></span><h3>Ainda não commitado</h3><span class="muted small">${g.arquivos.length}</span></div><div class="card-body">
       ${g.arquivos.length ? `<p class="muted small">Marque os arquivos que entram no próximo commit. “Sem conversa vinculada” quer dizer que nenhuma conversa do Tilo editou o arquivo diretamente (mudanças feitas por comando ou fora do Tilo não são atribuídas).</p><ul class="alt-list">${arqs}</ul>${form}` : '<div class="muted small">Nada para commitar: tudo o que foi alterado já está num commit.</div>'}</div></div>
@@ -1166,32 +1302,30 @@ async function altDiff(caminho) {
   try { A.diffs[caminho] = await api('/api/alteracoes/diff?arquivo=' + encodeURIComponent(caminho)); } catch (x) { A.diffs[caminho] = { erro: x.message }; }
   renderAlteracoes();
 }
-async function altCommit() {
+async function altCommit(doModal) {
   const A = S.alt, msg = A.msg.trim(), arquivos = [...A.sel];
   if (!arquivos.length) return toast('Marque pelo menos um arquivo');
   if (!msg) return toast('Escreva a mensagem do commit');
   const chats = altConversasDoCommit().filter((c) => c.marcada).map((c) => c.id);
-  if (!(await confirmar({ titulo: `Commitar ${arquivos.length} arquivo${arquivos.length === 1 ? '' : 's'}?`, texto: 'Cria um commit local com os arquivos marcados. Nada vai para o GitHub ainda.', ok: 'Commitar', icone: 'pi-check' }))) return;
+  if (!doModal && !(await confirmar({ titulo: `Commitar ${arquivos.length} arquivo${arquivos.length === 1 ? '' : 's'}?`, texto: 'Cria um commit local com os arquivos marcados. Nada vai para o GitHub ainda.', ok: 'Commitar', icone: 'pi-check' }))) return;
   A.busy = true; renderAlteracoes();
-  try { const r = await api('/api/alteracoes/commit', { arquivos, mensagem: msg, chats }); A.msg = ''; A.fora.clear(); A.extra.clear(); toast('Commit ' + r.sha + ' criado'); }
+  let ok = false;
+  try { const r = await api('/api/alteracoes/commit', { arquivos, mensagem: msg, chats }); A.msg = ''; A.fora.clear(); A.extra.clear(); ok = true; toast('Commit ' + r.sha + ' criado'); }
   catch (x) { toast(x.message); }
-  A.busy = false; await loadAlteracoes(true);
+  A.busy = false; if (ok && doModal && A.modal) $('#cdlg').close();
+  await loadAlteracoes(true);
 }
-async function altBranch(acao, nome) {
+async function altBranch(acao, nome, base = '') {
   const A = S.alt;
-  A.busy = true; renderAlteracoes();
-  try { const r = await api('/api/alteracoes/branch', { acao, nome }); toast(acao === 'criar' ? `Branch ${r.branch} criada` : r.mudou ? `Agora em ${r.branch}` : 'Já está nesta branch'); }
+  A.busy = true; renderAlteracoes(); renderChatGit();
+  try { const r = await api('/api/alteracoes/branch', { acao, nome, base }); toast(acao === 'criar' ? `Branch ${r.branch} criada` : r.mudou ? `Agora em ${r.branch}` : 'Já está nesta branch'); }
   catch (x) { toast(x.message); }
   A.busy = false; await loadAlteracoes(true);
-}
-async function altNovaBranch() {
-  const nome = await pedirTexto({ titulo: 'Nova branch', rotulo: 'Nome da branch (a partir da atual)', valor: 'feature-', ok: 'Criar e trocar' });
-  if (nome?.trim()) await altBranch('criar', nome.trim());
 }
 async function altPush() {
   const A = S.alt, n = A.dados?.naoEnviados.length || 0;
   if (!(await confirmar({ titulo: `Enviar ${n} commit${n === 1 ? '' : 's'} ao GitHub?`, texto: 'Isso publica os commits no repositório remoto (git push). É uma ação de produção e fica registrada na auditoria.', ok: 'Enviar', perigo: true, icone: 'pi-upload' }))) return;
-  A.busy = true; renderAlteracoes();
+  A.busy = true; renderAlteracoes(); renderChatGit();
   try { const r = await api('/api/alteracoes/push', {}); toast(`${r.enviados} commit${r.enviados === 1 ? '' : 's'} enviado${r.enviados === 1 ? '' : 's'}`); }
   catch (x) { toast(x.message); }
   A.busy = false; await loadAlteracoes(true);

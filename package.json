@@ -2,7 +2,7 @@
   "name": "tilo",
   "version": "0.1.0",
   "description": "Tilo — Project Knowledge: documentação, pendências e conversas com o Claude, por projeto, com aprovação de comandos.",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "private": true,
   "engines": {
     "node": ">=20"
