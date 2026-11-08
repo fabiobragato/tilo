@@ -12,7 +12,15 @@ Roda só no seu computador (`127.0.0.1`), usa a **sua assinatura** do Claude Cod
 
 ![Tela de seleção de projetos](docs/img/01-selecao.png)
 
+## Destaques
+
+- **Respostas mais curtas, menos tokens, já configuradas.** O tom das respostas (baseado no [Caveman](https://github.com/JuliusBrussee/caveman)) vem **embutido e ligado por padrão** (Enxuto): sem plugin, sem instalar nada. Troque por conversa entre **Normal, Enxuto, Curto e Mínimo**. O Caveman mediu, em média, 65% menos tokens de resposta (de 22% a 87%); o Tilo ainda não tem medida própria. O corte vale só para o texto das respostas, não para o que o Claude lê do projeto.
+- **Projeto novo ou existente, já documentado.** Cadastre uma pasta nova (o Tilo cria `pendencias/`, `docs/`, `planning/` e `CLAUDE.md`, sem sobrescrever nada) ou **atrele um projeto que já tem código** e peça ao Claude para **montar a `docs/` dele** na mesma hora, no padrão do Tilo. Depois, o modo **Conferir** mantém a documentação batendo com o código.
+- **Um chat feito para o dia a dia.** Num só lugar você escolhe o **modelo** (Fable, Opus, Sonnet, Haiku), o **tom**, o **tipo de conversa** (Perguntar tudo, Aceitar edições, Planejamento, Automático, Somente leitura), **anexa um `plano.md`** para o Claude seguir, escreve na fila enquanto ele trabalha e aprova cada comando em português.
+- **Git sem sair da conversa.** No topo do chat: **trocar de branch, criar branch, commitar arquivos escolhidos, push e pull**, tudo no mesmo lugar, e cada commit fica ligado à conversa que o originou.
+
 ## Sumário
+- [Destaques](#destaques)
 - [Para que serve](#para-que-serve)
 - [O que ele facilita](#o-que-ele-facilita)
 - [Funcionalidades](#funcionalidades)
@@ -51,11 +59,16 @@ O Tilo junta isso por projeto, num painel simples:
 | Documentação desatualizada | O Claude monta e confere `docs/` contra o código, valor por valor |
 | Cada projeto novo começa do zero | Biblioteca de documentos generalizados, reaproveitável |
 | Não saber quanto foi consumido | Tokens por conversa e estimativa de hoje e dos últimos 7 dias |
+| Respostas longas gastando tokens à toa | Tom Enxuto já ligado (Caveman embutido), com 4 níveis por conversa |
+| Alternar entre chat, terminal e cliente git | Branch, nova branch, commit, push e pull no topo do chat |
+| Plano escrito em `.md` fora da conversa | Botão **Plano .md**: o Claude recebe o arquivo junto da mensagem |
 
 ## Funcionalidades
 
 ### Seleção de projetos
-Tela estilo console: `←` `→` navegam, `Enter` abre, `1`–`9` abrem direto, `E` edita e `N` cadastra. Cada projeto tem nome, pasta, cor, ícone e logo. Ao cadastrar, o Tilo pode criar a **estrutura base** (`pendencias/`, `docs/`, `planning/`, `CLAUDE.md`), sem nunca sobrescrever nada.
+Tela estilo console: `←` `→` navegam, `Enter` abre, `1`–`9` abrem direto, `E` edita e `N` cadastra. Cada projeto tem nome, pasta, cor, ícone e logo. Ao cadastrar, o Tilo pode criar a **estrutura base** (`pendencias/`, `docs/`, `planning/`, `CLAUDE.md`), sem nunca sobrescrever nada. Serve tanto para projeto novo quanto para **projeto que já existe**: ao atrelar uma pasta com código, marque **Montar a documentação do projeto com o Claude** e a `docs/` nasce já na estrutura do Tilo.
+
+![Cadastro de projeto, com a opção de montar a documentação com o Claude](docs/img/10-novo-projeto.png)
 
 ### Visão geral
 Críticas abertas, importantes, o que está em andamento, sessões ativas, as próximas ações críticas, as últimas alterações do git e o consumo de tokens do projeto.
@@ -71,8 +84,17 @@ O painel lê `pendencias/README.md` do projeto (tabelas com 🔴🟡🟢). Filtr
 Conversas no navegador, sobre o projeto, usando o Claude Code que você já instalou:
 
 - **Fila de mensagens:** escreva enquanto o Claude trabalha; ele lê no próximo passo, como no terminal. **Parar** interrompe sem perder a conversa.
-- **Modos** (um menu só): Perguntar tudo, Aceitar edições, Planejamento, Automático e Somente leitura. A troca vale na hora.
-- **Modelo e tom** por conversa. O tom (Normal, Enxuto, Curto, Mínimo) reduz o tamanho das respostas.
+- **Tipo de conversa / modo** (um menu só, na linha do Enviar): Perguntar tudo, Aceitar edições, Planejamento, Automático e Somente leitura. A troca vale na hora, até com o Claude trabalhando.
+- **Modelo** por conversa: Fable 5.1, Opus 5.5, Sonnet 5.5 (padrão) ou Haiku 5.5. A resposta mostra a versão realmente usada.
+- **Tom e economia de tokens:** o Caveman já vem embutido e ligado (Enxuto). Escolha Normal, Enxuto, Curto ou Mínimo por conversa; quanto mais curto, menos tokens de resposta.
+- **Plano .md anexado:** o botão **Plano .md** anexa um arquivo Markdown (até 300.000 caracteres) à mensagem. O Claude lê o plano junto; sem texto, ele lê e diz como seguir. O histórico guarda só nome e tamanho.
+- **Git no próprio chat:** menu de **branch**, **Nova branch**, **Commitar** (escolhendo arquivos), **Push** e **Pull**, sem sair da conversa. Detalhes em [Alterações](#alterações-git-visual).
+
+![Menu de tom das respostas, com a economia de tokens](docs/img/11-chat-tom.png)
+
+![Commitar escolhendo arquivos, com a conversa ligada ao commit](docs/img/13-commit.png)
+
+![Nova branch a partir da atual ou de outra](docs/img/14-nova-branch.png)
 - **Aba Atividade:** comandos e ferramentas ficam fora da conversa, numa lista ao vivo com status e duração. Só o comando é guardado, nunca a saída (que pode ter segredos).
 - Perguntas com opções, modo plano com aprovação do plano, encerrar/reabrir, renomear e vínculo com uma pendência.
 
@@ -84,7 +106,7 @@ Cada comando que o Claude quer rodar abre um cartão que explica o que ele faz e
 ![Cartão de aprovação](docs/img/04b-aprovacao.png)
 
 ### Alterações (git visual)
-Branch atual e troca de branch, arquivos não commitados, commits ainda não enviados ao GitHub e histórico paginado. Cada mudança mostra **de qual conversa veio** (o commit leva uma linha `Tilo-Chat:` na mensagem). Dá para commitar arquivos escolhidos e enviar ao GitHub sem forçar. Arquivos que parecem segredos (`.env`, `.pem`, `.token`…) nunca são commitados nem têm o diff exibido. Veja [`docs/business/alteracoes.md`](docs/business/alteracoes.md).
+Branch atual, troca e **criação de branch**, arquivos não commitados, commits ainda não enviados ao GitHub e histórico paginado. A mesma barra (branch, Nova branch, Commitar, Push e **Pull**, que junta no atual uma branch do GitHub sem rebase nem força) aparece também no topo do chat. Cada mudança mostra **de qual conversa veio** (o commit leva uma linha `Tilo-Chat:` na mensagem). Dá para commitar arquivos escolhidos e enviar ao GitHub sem forçar. Arquivos que parecem segredos (`.env`, `.pem`, `.token`…) nunca são commitados nem têm o diff exibido. Veja [`docs/business/alteracoes.md`](docs/business/alteracoes.md).
 
 ![Alterações](docs/img/05-alteracoes.png)
 
