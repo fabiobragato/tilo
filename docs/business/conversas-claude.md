@@ -18,6 +18,7 @@ Permitir que o dono converse com o Claude sobre o projeto, usando a assinatura d
 | Tempo de sessão | Selo no cabeçalho com o tempo desde a criação da conversa e, enquanto o Claude trabalha, "Claude trabalhando há ..." ao lado do Enviar. |
 | Vínculo com pendência | Opcional (`itemId`); contexto de até 4000 caracteres enviado na primeira mensagem. Na conversa, uma faixa abaixo do título mostra a pendência vinculada (título e seção); clicar nela abre o item no painel de Pendências. |
 | Mensagem | Até 20.000 caracteres. |
+| Plano anexado | Botão **Plano .md** (clipe), ao lado do menu de tom: anexa um arquivo `.md`/`.markdown` (até 300.000 caracteres) à próxima mensagem. O Claude recebe o conteúdo junto da mensagem; o histórico guarda só nome e tamanho (aparecem sob a mensagem). Dá para enviar o anexo sem texto; sem texto, o Tilo pede ao Claude para ler o plano e dizer como seguir. O anexo é por conversa e some do campo após o envio (volta se o envio falhar). Comandos `/` não valem numa mensagem com anexo. Mensagem na fila (Claude trabalhando) mostra o conteúdo completo ao entrar no histórico. |
 | Consumo | Tokens usados, no cabeçalho, na lista lateral e na tela Sessões (inclusive nas encerradas). Ver [consumo-de-tokens.md](consumo-de-tokens.md). |
 
 ## 3. Fluxos

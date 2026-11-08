@@ -113,7 +113,7 @@ const S = {
   avisados: new Set(), // planos pendentes de outras conversas que já abriram a conversa uma vez
   page: { pend: 1, sess: 1, arq: 1 }, size: { pend: 10, sess: 6, arq: 12 },
   f: { sec: 0, prio: '', stat: 'ativos', q: '', sessTab: 'painel', hid: false, area: '', hideEnc: true },
-  draft: {}, collapsed: ls.get('tilo.sidebar-collapsed', '0') === '1',
+  draft: {}, anexo: {}, collapsed: ls.get('tilo.sidebar-collapsed', '0') === '1',
 };
 const st = (id) => S.state.items[id] || { status: 'aberto' };
 const items = () => S.sections.flatMap((s) => s.items);
@@ -367,9 +367,10 @@ function viewChat() {
           <button class="btn primary sm" data-act="plan-continuar" title="Desliga o modo plan e manda o Claude executar o plano"><i class="pi pi-play"></i> Sair do planejamento e continuar</button>
           <button class="btn sm" data-act="plan-sair" title="Só desliga o modo plan; você escreve a próxima mensagem"><i class="pi pi-sign-out"></i> Só sair do planejamento</button></div>
         <div class="quick" id="quick">${[['Explique', 'Explique essa pendência em linguagem simples: o que é, por que importa e o que acontece se eu não fizer.'], ['Passo a passo', 'Me dê o passo a passo para eu fazer isso, com comandos exatos quando houver.'], ['Já está feito?', 'Confira no código e em docs/ se isso já está resolvido. Diga com evidência (arquivo e linha).'], ['Recomende', 'Dê uma recomendação clara com prós e contras, para eu decidir.']].map(([l, p]) => `<button class="chipbtn" data-act="quick" data-p="${esc(p)}" title="${esc(p)}">${l}</button>`).join('')}</div>
+        <div class="anexo-chip" id="anexo-chip" hidden></div>
         <textarea id="msg" placeholder="Pergunte algo… ou use /plan, /model opus (Ctrl+Enter envia)"></textarea>
         <div class="bar"><div class="runinfo"><span class="hint" id="hint"></span><span class="runstate" id="runstate" hidden></span></div>
-          <div class="sendrow"><div class="dd" id="dd-tom"></div><div class="dd" id="dd-modelo"></div><div class="dd" id="dd-modo"></div>
+          <div class="sendrow"><input type="file" id="anexo-in" accept=".md,.markdown,text/markdown" hidden><button class="btn" id="anexar" data-act="anexar" title="Anexa um plano em .md (até 300 mil caracteres) à próxima mensagem. O Claude lê o conteúdo; o histórico guarda só o nome."><i class="pi pi-paperclip"></i> Plano .md</button><div class="dd" id="dd-tom"></div><div class="dd" id="dd-modelo"></div><div class="dd" id="dd-modo"></div>
             <button class="btn danger" id="stop" data-act="stop" hidden title="Interrompe o que o Claude está fazendo agora (como Esc no terminal). A conversa continua."><i class="pi pi-stop-circle"></i> Parar</button><button class="btn primary" id="send" data-act="send" title="Enviar (Ctrl+Enter). Com o Claude trabalhando, a mensagem entra na fila e ele a lê no próximo passo."><i class="pi pi-send"></i> Enviar</button></div></div>
       </div>
       <div class="composer" id="closed-bar" hidden><span class="muted small">Esta conversa foi encerrada. O histórico fica guardado; reabra para continuar conversando.</span>
@@ -537,6 +538,7 @@ function updateChat() {
   const key = JSON.stringify([c.id, c.messages.length, c.running, c.ocupado, c.segundoPlano, (c.fila || []).map((f) => f.id), c.modo, c.model, c.closed, c.doc]);
   if (S.chatKey === key) return; S.chatKey = key;
   const ta = $('#msg'); if (ta.dataset.cid !== c.id) { ta.value = S.draft[c.id] || ''; ta.dataset.cid = c.id; }
+  pintarAnexo();
   const log = $('#chat-log'), perto = log.scrollHeight - log.scrollTop - log.clientHeight < 80 || log.dataset.cid !== c.id; // só rola sozinho se o dono já estava no fim
   log.dataset.cid = c.id;
   const aguardando = new Set((c.fila || []).map((f) => f.id)), pendentes = (c.fila || []).filter((f) => !f.persistido);
@@ -619,7 +621,7 @@ function bubble(m, ro, aguardando) {
   const u = m.role === 'user';
   if (!u && !m.text && m.tools?.length) return `<div class="act-line">${resumoAcoes(m.tools)}</div>`; // resposta só com ações: sem bolha vazia
   const estado = u && m.naoLida ? '<div class="meta err"><i class="pi pi-exclamation-triangle"></i> não chegou a ser lida pelo Claude — envie de novo</div>' : u && aguardando ? '<div class="meta"><i class="pi pi-clock"></i> enviada, ainda não lida</div>' : '';
-  return `<div class="msg ${u ? 'u' : 'a'} ${m.erro || m.naoLida ? 'erro' : ''}"><div class="av">${u ? 'EU' : '<i class="pi pi-sparkles"></i>'}</div><div class="bubble">${u ? esc(m.text) + estado : (m.text ? md(m.text) : '') + (m.tools?.length ? `<div class="act-wrap">${resumoAcoes(m.tools)}</div>` : '')}${!u ? `<div class="meta">${mname(m.modeloId || m.model)}${m.plan ? ' · plan' : ''}${m.interrompido ? ' · interrompida' : ''}</div>` : ''}</div></div>`;
+  return `<div class="msg ${u ? 'u' : 'a'} ${m.erro || m.naoLida ? 'erro' : ''}"><div class="av">${u ? 'EU' : '<i class="pi pi-sparkles"></i>'}</div><div class="bubble">${u ? esc(m.text) + (m.anexo ? `<div class="meta"><i class="pi pi-paperclip"></i> ${esc(m.anexo.nome)} · ${Number(m.anexo.chars).toLocaleString('pt-BR')} caracteres</div>` : '') + estado : (m.text ? md(m.text) : '') + (m.tools?.length ? `<div class="act-wrap">${resumoAcoes(m.tools)}</div>` : '')}${!u ? `<div class="meta">${mname(m.modeloId || m.model)}${m.plan ? ' · plan' : ''}${m.interrompido ? ' · interrompida' : ''}</div>` : ''}</div></div>`;
 }
 // Plano do Claude (modo plan): card dentro do chat, com o plano completo e botões Sim/Não. Não usa o modal.
 function renderPlano(planos) {
@@ -740,27 +742,45 @@ async function cfg(patch) {
 const ALIAS = { fable: 'fable', sonnet: 'sonnet', opus: 'opus', haiku: 'haiku', padrao: 'sonnet', 'padrão': 'sonnet', default: 'sonnet', '': 'sonnet' };
 async function send(textArg) {
   // Nunca bloqueia por "o Claude está trabalhando": a mensagem entra na fila nativa do Claude Code (ver docs/business/conversas-claude.md).
-  const c = curChat(); const ta = $('#msg'); let text = (textArg ?? ta.value).trim(); if (!c || !text) return;
+  const c = curChat(); const ta = $('#msg'); let text = (textArg ?? ta.value).trim(); const anexo = textArg === undefined ? S.anexo[c?.id] : null; if (!c || (!text && !anexo)) return;
   let m;
-  if ((m = text.match(/^\/modo(?:\s+(\S*))?$/i))) {
+  if (!anexo && (m = text.match(/^\/modo(?:\s+(\S*))?$/i))) {
     const v = (m[1] || '').toLowerCase(), k = { plan: 'plan', planejamento: 'plan', perguntar: 'perguntar', ask: 'perguntar', editar: 'editar', normal: 'editar', auto: 'auto', automatico: 'auto', 'automático': 'auto', leitura: 'leitura' }[v];
     if (!k) { toast('Modos: perguntar, editar, plan, auto, leitura'); return; }
     ta.value = ''; S.draft[c.id] = ''; hint(); await cfg({ modo: k }); toast('Modo: ' + MODOS[k][0]); return;
   }
-  if ((m = text.match(/^\/model(?:\s+(\S*))?$/i))) {
+  if (!anexo && (m = text.match(/^\/model(?:\s+(\S*))?$/i))) {
     const v = (m[1] || '').toLowerCase();
     if (!(v in ALIAS)) { toast('Modelos: fable, opus, sonnet (padrão), haiku'); return; }
     ta.value = ''; S.draft[c.id] = ''; hint(); await cfg({ model: ALIAS[v] }); toast('Modelo: ' + MODELS[ALIAS[v]]); return;
   }
-  if ((m = text.match(/^\/plan(?:\s+([\s\S]+))?$/i))) {
+  if (!anexo && (m = text.match(/^\/plan(?:\s+([\s\S]+))?$/i))) {
     if (!m[1]) { ta.value = ''; S.draft[c.id] = ''; hint(); await cfg({ plan: !c.plan }); toast(curChat().plan ? 'Plan ligado' : 'Plan desligado'); return; }
     await cfg({ plan: true }); text = m[1].trim();
-  } else if (text.startsWith('/')) { toast('Comandos disponíveis: /plan, /model e /modo'); return; }
+  } else if (!anexo && text.startsWith('/')) { toast('Comandos disponíveis: /plan, /model e /modo'); return; }
   ta.value = ''; S.draft[c.id] = ''; hint();
   const mid = crypto.randomUUID(); // o servidor ignora o mesmo id repetido (reenvio de rede) e assim nada é duplicado
-  try { Object.assign(c, await api('/api/chat/enviar', { id: c.id, text, mid })); S.chatKey = null; updateChat(); await loadChats(); }
-  catch (x) { if (!ta.value) { ta.value = text; S.draft[c.id] = text; } toast(x.message); } // falhou: devolve o texto à caixa, nada se perde
+  if (anexo) { delete S.anexo[c.id]; pintarAnexo(); }
+  try { Object.assign(c, await api('/api/chat/enviar', { id: c.id, text, mid, ...(anexo ? { anexo } : {}) })); S.chatKey = null; updateChat(); await loadChats(); }
+  catch (x) { if (!ta.value) { ta.value = text; S.draft[c.id] = text; } if (anexo && !S.anexo[c.id]) { S.anexo[c.id] = anexo; pintarAnexo(); } toast(x.message); } // falhou: devolve o texto à caixa, nada se perde
 }
+// Plano .md anexado à próxima mensagem (por conversa). O arquivo é lido no navegador; o servidor valida nome e tamanho.
+const ANEXO_MAX = 300_000;
+function pintarAnexo() {
+  const box = $('#anexo-chip'), c = curChat(); if (!box) return;
+  const a = c && S.anexo[c.id]; box.hidden = !a;
+  box.innerHTML = a ? `<i class="pi pi-file"></i><b>${esc(a.nome)}</b><span class="muted small">${a.texto.length.toLocaleString('pt-BR')} caracteres</span><button type="button" class="btn sm" data-act="anexo-rm" title="Remove o plano anexado"><i class="pi pi-times"></i></button>` : '';
+}
+document.addEventListener('change', async (e) => {
+  if (e.target.id !== 'anexo-in') return;
+  const f = e.target.files[0], c = curChat(); e.target.value = ''; if (!f || !c) return;
+  if (!/\.(md|markdown)$/i.test(f.name)) { toast('Anexe um arquivo .md'); return; }
+  if (f.size > ANEXO_MAX * 3) { toast('Arquivo grande demais (máx. 300 mil caracteres)'); return; }
+  const texto = await f.text();
+  if (!texto.trim()) { toast('O arquivo está vazio'); return; }
+  if (texto.length > ANEXO_MAX) { toast('O plano passa de 300 mil caracteres'); return; }
+  S.anexo[c.id] = { nome: f.name, texto }; pintarAnexo(); $('#msg')?.focus();
+});
 function hint() {
   const v = $('#msg')?.value || '', h = $('#hint'); if (!h) return;
   h.textContent = /^\/mo[dD]/i.test(v) ? '/modo perguntar · editar · plan · auto · leitura' : /^\/m/i.test(v) ? '/model fable · opus · sonnet · haiku' : /^\/p/i.test(v) ? '/plan alterna o modo plan · /plan <texto> envia já em plan' : v.startsWith('/') ? 'Comandos: /plan  /model  /modo' : '';
@@ -834,6 +854,8 @@ document.addEventListener('click', async (e) => {
         await send('Plano aprovado. O modo planejamento foi desligado. Pode executar o plano agora.');
         break;
       }
+      case 'anexar': $('#anexo-in')?.click(); break;
+      case 'anexo-rm': { const c = curChat(); if (c) { delete S.anexo[c.id]; pintarAnexo(); } break; }
       case 'send': send(); break;
       case 'aprovar': case 'negar': case 'aprovar-sessao': case 'aprovar-lembrar': {
         const box = el.closest('.adlg'); box.querySelectorAll('button').forEach((b) => { b.disabled = true; });
