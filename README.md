@@ -238,9 +238,9 @@ O Tilo é **source-available**: o código é público, mas **não é open source
 
 | | Community | Business |
 |---|---|---|
-| Custo | Grátis | Pago (valores em definição) |
+| Custo | Grátis | Pago (a partir de R$ 49/mês) |
 | Licença | [PolyForm Noncommercial 1.0.0](LICENSE) | Autorização comercial separada ([COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md)) |
-| Para quem | Uso pessoal, estudo, pesquisa e organizações sem fins lucrativos, de ensino ou governamentais, nos termos da licença | Empresas e profissionais que usam o Tilo em atividade comercial, inclusive freelancers em projetos remunerados |
+| Para quem | Uso pessoal, estudo, pesquisa e organizações sem fins lucrativos, de ensino ou governamentais, nos termos da licença; e freelancers autônomos, inclusive em projetos remunerados ([FREELANCER-PERMISSION.md](FREELANCER-PERMISSION.md)) | Empresas, agências, equipes e profissionais alocados por empresa que usam o Tilo em atividade comercial |
 | Instalação | Local | Local (a diferença é o direito de uso, não o software) |
 
 Dúvida se o seu uso é comercial? Veja [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md) ou escreva para fabio_bragato@hotmail.com.

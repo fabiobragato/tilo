@@ -8,17 +8,14 @@ Painel do dono do projeto (Tilo). Prioridade: 🔴 crítica · 🟡 importante �
 
 | | Item | Por que importa | Mais detalhes |
 |---|---|---|---|
-| 🔴 | **Revisão jurídica da licença e do contrato Business** | Bloqueia a publicação. O `LICENSE` agora é PolyForm Noncommercial 1.0.0 (rascunho; eu não sou advogado). Ela já libera ONGs, escolas, pesquisa e governo, como você aceitou. Pontos para o advogado: (1) a PolyForm não define "freelancer" nem "avaliação dentro de empresa", então o contrato Business e o `COMMERCIAL-LICENSE.md` precisam cobrir; (2) redigir o contrato Business (escopo, renovação, rescisão, garantias); (3) confirmar a cláusula de contribuição do `CONTRIBUTING.md` (DCO + uso comercial) ou trocar por CLA; (4) política de marca "Tilo". | `LICENSE`, `COMMERCIAL-LICENSE.md`, `CONTRIBUTING.md`, `docs/business/licenciamento.md`. Não editar o texto da PolyForm mantendo o nome dela. |
-| 🟡 | **Preços, assentos e forma de cobrança** | Os valores do plano (Business Individual R$ 39/mês, Team R$ 149/mês até 5 usuários) são hipóteses não validadas; o `COMMERCIAL-LICENSE.md` não traz preços. | Validar com 10–20 conversas antes de automatizar cobrança. |
-| 🟡 | **Aceitar Pull Requests ou não** | O `CONTRIBUTING.md` já pede DCO (`git commit -s`) e diz que PRs só serão analisados após o repositório ser público. Você aprova cada PR e confere o `Signed-off-by`. | Se o advogado achar o DCO fraco, o passo seguinte é CLA. |
+| 🟡 | **Testar o aceite dos termos no Stripe** | Preços, cobrança e a URL dos termos estão configurados. Falta fazer uma compra de teste para confirmar que a caixa de aceite aparece nos dois Payment Links. | `COMMERCIAL-LICENSE.md`, `docs/business/termos-business.md`. |
 
 ## 2. Fazer na mão
 
 | | Item | Por que importa | Mais detalhes |
 |---|---|---|---|
-| 🔴 | **Auditar o histórico antes de tornar público** | Varredura feita (27 commits, 3 branches): sem chaves, tokens, `.env` nem `.token`/`projetos.json`/logs rastreados; sem caminhos pessoais em código. Aparece o e-mail `fabio_bragato@hotmail.com` em 6 commits (o mesmo do titular) e o noreply do GitHub. As capturas de `docs/img/` foram refeitas com um projeto fictício (Loja Demo) e não têm dados pessoais. Falta: rodar uma ferramenta dedicada (ex.: gitleaks) e rever tags/branches remotas. | Sem dependências npm (nada a auditar além de PrimeIcons e Caveman, ambos MIT com aviso mantido). Se algo vazar, rotacione antes de limpar o histórico. |
 | 🟡 | **Candidatar-se ao GitHub Sponsors** | O botão Sponsors não deve ser anunciado antes da aprovação; a página oficial pede contribuição a um projeto open source e não diz se uma licença source-available serve; só o GitHub confirma (formulário de inscrição ou suporte). O Buy Me a Coffee (`buymeacoffee.com/fabiobragato`) já está no `README.md` e no `.github/FUNDING.yml`; o Sponsors segue comentado ali. Confira se o Pix e os saques em reais funcionam na sua conta do Buy Me a Coffee. | Depois de aprovado, descomente a linha e confirme o botão nas configurações. |
-| 🟡 | **Proteger a `main`, revisar Actions e testar instalação limpa** | Antes de publicar: regra de proteção da `main`, conferir logs/artefatos de Actions e instalar em máquina limpa seguindo o README. | Proteção: Settings → Rules → Rulesets → New branch ruleset, alvo `main`, ligando "Restrict deletions", "Block force pushes" e "Require a pull request before merging". Em repositório privado isso exige plano pago; fica livre ao tornar público. Visibilidade (Danger Zone) só ao final. |
+| 🟡 | **Revisar Actions e testar instalação limpa** | Conferir logs e artefatos de Actions e instalar em máquina limpa seguindo o README. A proteção da `main` já foi feita. | `.github/workflows/ci.yml` |
 | 🟢 | **Contato comercial, release v0.1.0 e página de planos** | Hoje o contato é só o e-mail do `COMMERCIAL-LICENSE.md`. Release e página só quando corresponderem ao estágio real. | `CHANGELOG.md` |
 
 ## 3. Conferir
