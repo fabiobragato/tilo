@@ -39,7 +39,7 @@ test('exfiltração e execução ofuscada são negadas', () => {
 });
 
 test('produção pergunta com risco destacado', () => {
-  for (const c of ['ssh deploy@vps ls', 'pwsh -File scripts/migrate.ps1', 'git push origin feature-fabio', 'curl https://api.exemplo.com/health'])
+  for (const c of ['ssh deploy@vps ls', 'pwsh -File scripts/migrate.ps1', 'git push origin feature-x', 'curl https://api.exemplo.com/health'])
     assert.deepEqual([acao(c), risco(c)], ['perguntar', 'producao'], c);
   assert.equal(risco('curl http://localhost:8080/health'), 'normal');
 });
