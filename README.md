@@ -245,7 +245,7 @@ O Tilo é **source-available**: o código é público, mas **não é open source
 
 Dúvida se o seu uso é comercial? Veja [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md) ou escreva para fabio_bragato@hotmail.com.
 
-**Support Tilo development.** O patrocínio voluntário (GitHub Sponsors, ainda não ativado) ajuda a manter o projeto e **não concede licença comercial**.
+**Support Tilo development.** O apoio voluntário pelo [Buy Me a Coffee](https://buymeacoffee.com/fabiobragato) ajuda a manter o projeto e **não concede licença comercial**. (GitHub Sponsors ainda não está ativado.)
 
 O Tilo inclui os ícones do [PrimeIcons](https://github.com/primefaces/primeicons) (MIT; ver `assets/PRIMEICONS-LICENSE`). O tom das respostas (`tom.mjs`) é adaptado do plugin Caveman (MIT); o aviso está no cabeçalho do arquivo. Esses avisos continuam valendo para esses componentes. O nome "Tilo" e a identidade visual não são licenciados por este arquivo.
 
