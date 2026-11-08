@@ -37,7 +37,7 @@ Autorização de uso comercial. Período, renovação, rescisão, garantias e re
 
 ## O que não é licença comercial
 
-- **GitHub Sponsors** (quando existir) é apoio voluntário e **não concede** licença comercial.
+- **[Buy Me a Coffee](https://buymeacoffee.com/fabiobragato)** é apoio voluntário e **não concede** licença comercial.
 - **Serviços** (implantação, treinamento, suporte, Tilo Enterprise) são contratados à parte.
 - O nome "Tilo" e a identidade visual não estão incluídos em nenhuma licença.
 
