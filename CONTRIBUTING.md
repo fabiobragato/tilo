@@ -1,6 +1,6 @@
 # Contribuindo com o Tilo
 
-> Rascunho em revisão jurídica. O repositório ainda é privado; Pull Requests só serão analisados depois que ele for público.
+> Pull Requests são analisados conforme a disponibilidade do mantenedor.
 
 ## Antes de tudo
 

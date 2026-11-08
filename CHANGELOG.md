@@ -5,7 +5,7 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 ## [Não lançado]
 
 ### Alterado
-- Licença trocada de MIT para PolyForm Noncommercial 1.0.0 (source-available), com licença comercial Business separada. Rascunho em revisão jurídica; o repositório segue privado.
+- Licença trocada de MIT para PolyForm Noncommercial 1.0.0 (source-available), com licença comercial Business separada.
 
 ### Adicionado
 - `COMMERCIAL-LICENSE.md`, `CONTRIBUTING.md` (DCO), `SECURITY.md`, `CHANGELOG.md`, templates de Issue/PR e `docs/business/licenciamento.md`.
