@@ -16,7 +16,7 @@ A aba **Alterações** (`#/alteracoes`) mostra o repositório git do projeto: o 
 ## Vínculo com a conversa
 
 - **Arquivo não commitado:** liga o arquivo às conversas do painel cujo registro (`tools[]` em `chats.json`) tem `Edit`, `Write`, `MultiEdit` ou `NotebookEdit` concluído nesse caminho. Edições com erro não contam. Só valem edições feitas **depois do último commit que tocou aquele arquivo** (o que já foi commitado não volta a ser atribuído; arquivo novo conta todas as edições). Conversas de documentação (`gen`) ficam de fora.
-- **Commit:** o vínculo é a linha `Tilo-Chat: <id da conversa>` no fim da mensagem (trailer git). Só commits feitos pelo botão **Commitar** ganham a linha; commits antigos ou feitos fora do Tilo aparecem como "sem conversa vinculada". Se a conversa for apagada, o commit mostra "conversa apagada".
+- **Commit:** o vínculo é a linha `Tilo-Chat: <id da conversa>` no fim da mensagem (trailer git). Ganham a linha os commits feitos pelo botão **Commitar** e os que o próprio Claude faz (`git commit` via Bash/PowerShell) numa conversa do painel: o aprovador acrescenta `--trailer "Tilo-Chat: <id>"` ao comando depois que o dono aprova (`injetarTrailer` em `git.mjs`); commits antigos ou feitos fora do Tilo aparecem como "sem conversa vinculada". Se a conversa for apagada, o commit mostra "conversa apagada".
 - **Limites:** mudanças feitas por comandos (`sed`, `npm install`, geração de arquivos) e por você fora do Tilo não são atribuídas. Se mais de uma conversa editou o arquivo, todas aparecem. O vínculo é por arquivo, não por linha.
 
 ## Ações

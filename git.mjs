@@ -116,6 +116,14 @@ export function montarMensagem(mensagem, chatIds = []) {
   return ids.length ? `${limpa}\n\n${ids.map((i) => `${TRAILER}: ${i}`).join('\n')}\n` : `${limpa}\n`;
 }
 
+// Commits feitos pelo próprio Claude (Bash/PowerShell) numa conversa do painel: acrescenta `--trailer "Tilo-Chat: <id>"` a cada `git commit`,
+// para o commit ficar ligado à conversa. Não mexe se o id for inválido ou se o comando já trouxer o trailer.
+export function injetarTrailer(comando, chatId) {
+  const cmd = String(comando ?? '');
+  if (!UUID.test(String(chatId)) || cmd.toLowerCase().includes(TRAILER.toLowerCase())) return cmd;
+  return cmd.replace(/\bgit\s+commit\b/g, (m) => `${m} --trailer "${TRAILER}: ${chatId}"`);
+}
+
 // Commit só dos arquivos escolhidos (o que estiver preparado à parte fica de fora).
 export async function commitar(pasta, caminhos, mensagem, chatIds = []) {
   const e = await estado(pasta);

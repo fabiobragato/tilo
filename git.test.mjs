@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { estado, diff, commitar, enviar, puxar, trocarBranch, criarBranch, nomeBranchValido, historico, arquivosDoCommit, diffDoCommit, lerArquivosDoCommit, lerStatus, lerLog, montarMensagem, ehSensivel, vincularArquivos, gitDisponivel } from './git.mjs';
+import { estado, diff, commitar, enviar, puxar, trocarBranch, criarBranch, nomeBranchValido, historico, arquivosDoCommit, diffDoCommit, lerArquivosDoCommit, lerStatus, lerLog, montarMensagem, injetarTrailer, ehSensivel, vincularArquivos, gitDisponivel } from './git.mjs';
 
 const temGit = await gitDisponivel();
 const ID1 = '11111111-1111-4111-8111-111111111111';
@@ -33,6 +33,20 @@ test('lerLog separa os campos e extrai só ids de conversa válidos', () => {
   assert.deepEqual(r[0].chats, [ID1]);
   assert.deepEqual(r[1].chats, []);
   assert.equal(r[0].quando, 1700000000000);
+});
+
+test('injetarTrailer liga o git commit do Claude à conversa, sem duplicar nem aceitar id inválido', () => {
+  assert.equal(injetarTrailer('git add a && git commit -m "x"', ID1), `git add a && git commit --trailer "Tilo-Chat: ${ID1}" -m "x"`);
+  assert.equal(injetarTrailer('git commit -m "x\n\nTilo-Chat: outro"', ID1), 'git commit -m "x\n\nTilo-Chat: outro"');
+  assert.equal(injetarTrailer('git commit -m x', 'x'), 'git commit -m x');
+  assert.equal(injetarTrailer('git status', ID1), 'git status');
+  if (temGit) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tilo-trailer-'));
+    sh(dir, 'init', '-q'); fs.writeFileSync(path.join(dir, 'a.txt'), '1');
+    sh(dir, 'config', 'user.name', 't'); sh(dir, 'config', 'user.email', 't@t'); sh(dir, 'add', '.');
+    execFileSync(injetarTrailer('git commit -q -m "ajusta"', ID1), { cwd: dir, shell: true });
+    assert.match(sh(dir, 'log', '-1', '--format=%(trailers:key=Tilo-Chat,valueonly)'), new RegExp(ID1));
+  }
 });
 
 test('montarMensagem acrescenta trailers e ignora ids inválidos ou trailer digitado à mão', () => {

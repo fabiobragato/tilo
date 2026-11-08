@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { injetarTrailer } from './git.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.TILO_PORT || 4777);
@@ -35,7 +36,11 @@ async function decidir(args) {
     });
     const j = await r.json();
     if (!r.ok) return negar(j.erro || `painel respondeu ${r.status}`);
-    return j.behavior === 'allow' ? { behavior: 'allow', updatedInput: j.updatedInput || args.input } : negar(j.message || 'negado pelo dono');
+    if (j.behavior !== 'allow') return negar(j.message || 'negado pelo dono');
+    const entrada = j.updatedInput || args.input;
+    // Commit feito pelo Claude nesta conversa: liga o commit à conversa (trailer Tilo-Chat), depois da aprovação do dono.
+    if (['Bash', 'PowerShell'].includes(args.tool_name) && typeof entrada?.command === 'string') return { behavior: 'allow', updatedInput: { ...entrada, command: injetarTrailer(entrada.command, CHAT) } };
+    return { behavior: 'allow', updatedInput: entrada };
   } catch (e) {
     return negar(`aprovador indisponível: ${e.message}`);
   }
