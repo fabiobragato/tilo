@@ -20,7 +20,7 @@ function render() {
   rail.innerHTML = S.projetos.map((p, i) => `<button class="tile ${i === S.sel ? 'on' : ''}" role="option" data-i="${i}" aria-label="${esc(p.nome)}" style="--c:${esc(p.cor)}"><img src="${esc(p.logo)}?v=${S.v}" alt=""></button>`).join('')
     + `<button class="tile add ${S.sel === S.projetos.length ? 'on' : ''}" role="option" data-i="${S.projetos.length}" aria-label="Novo projeto"><i class="pi pi-plus"></i></button>`;
   const p = S.projetos[S.sel];
-  $('#info').innerHTML = p ? `<h1>${esc(p.nome)}</h1><p>${esc(p.descricao || 'Abrir pendências, sessões e conversas')}</p><button class="b" id="edit-btn"><i class="pi pi-pencil"></i> Editar</button> <button class="b" id="del-btn"><i class="pi pi-trash"></i> Excluir da lista</button>` : '<h1>Novo projeto</h1><p>Adicione outro projeto ao Tilo</p>';
+  $('#info').innerHTML = p ? `<h1>${esc(p.nome)}</h1><p>${esc(p.descricao || 'Abrir pendências, sessões e conversas')}</p><button class="b" id="edit-btn" title="Muda nome, descrição, cor e imagens deste projeto; a pasta não muda"><i class="pi pi-pencil"></i> Editar projeto</button> <button class="b" id="del-btn" title="Tira o projeto da lista do Tilo; a pasta e os arquivos dele não são apagados"><i class="pi pi-trash"></i> Tirar da lista</button>` : '<h1>Novo projeto</h1><p>Adicione outro projeto ao Tilo</p>';
   rail.querySelector('.tile.on')?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
 }
 function abrir(i) {

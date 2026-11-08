@@ -13,6 +13,8 @@ import * as projetos from './projetos.mjs';
 import * as catalogo from './catalogo.mjs';
 import { consumoRecente, pastaDeTranscripts, usoDoArquivo } from './consumo.mjs';
 import { Fluxo, linhaInterrupcao, linhaModelo, linhaModo, linhaUsuario } from './fluxo.mjs';
+import { TONS, instrucaoTom } from './tom.mjs';
+import * as gitx from './git.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const als = new AsyncLocalStorage(); // projeto da requisição em curso
@@ -202,8 +204,8 @@ const SYSTEM = [
 function gerarSettings() {
   const base = JSON.parse(fs.readFileSync(path.join(HERE, 'claude-settings.json'), 'utf8'));
   const pasta = path.basename(HERE);
-  const arquivos = ['server.mjs', 'aprovador-mcp.mjs', 'politica.mjs', 'catalogo.mjs', 'projetos.mjs', 'fluxo.mjs', 'consumo.mjs', 'claude-settings.json', 'projetos.json',
-    'index.html', 'inicio.html', 'package.json', 'iniciar.cmd', 'politica.test.mjs', 'catalogo.test.mjs', 'projetos.test.mjs', 'fluxo.test.mjs', 'padroes.test.mjs', 'consumo.test.mjs', 'server.test.mjs'];
+  const arquivos = ['server.mjs', 'aprovador-mcp.mjs', 'politica.mjs', 'catalogo.mjs', 'projetos.mjs', 'fluxo.mjs', 'consumo.mjs', 'tom.mjs', 'git.mjs', 'claude-settings.json', 'projetos.json',
+    'index.html', 'inicio.html', 'package.json', 'iniciar.cmd', 'politica.test.mjs', 'catalogo.test.mjs', 'projetos.test.mjs', 'fluxo.test.mjs', 'padroes.test.mjs', 'consumo.test.mjs', 'git.test.mjs', 'server.test.mjs'];
   base.permissions.deny.push(`Read(**/${pasta}/.token)`, `Read(**/${pasta}/projetos.json)`,
     ...['assets', 'modelos', 'scripts', 'dados', 'catalogo', 'logos'].flatMap((d) => [`Edit(**/${pasta}/${d}/**)`, `Write(**/${pasta}/${d}/**)`]),
     ...arquivos.flatMap((f) => [`Edit(**/${pasta}/${f})`, `Write(**/${pasta}/${f})`]));
@@ -212,20 +214,12 @@ function gerarSettings() {
   return f;
 }
 const SETTINGS_FILE = gerarSettings();
-// Caveman (plugin que deixa as respostas curtas e economiza tokens). As conversas abrem com --setting-sources project, que ignora os plugins do usuário;
-// por isso o plugin já instalado (~/.claude/plugins/installed_plugins.json) é carregado só nas conversas do Tilo com --plugin-dir.
-// TILO_CAVEMAN=off desliga; TILO_CAVEMAN_NIVEL = lite (padrão) | full | ultra. Se o plugin não estiver instalado, nada muda.
-const CAVEMAN_NIVEIS = ['lite', 'full', 'ultra'];
-const CAVEMAN_NIVEL = CAVEMAN_NIVEIS.includes(String(process.env.TILO_CAVEMAN_NIVEL || '').toLowerCase()) ? String(process.env.TILO_CAVEMAN_NIVEL).toLowerCase() : 'lite';
-const CAVEMAN_DIR = (() => {
-  if (String(process.env.TILO_CAVEMAN || '').toLowerCase() === 'off') return '';
-  try {
-    const casa = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
-    const inst = JSON.parse(fs.readFileSync(path.join(casa, 'plugins', 'installed_plugins.json'), 'utf8')).plugins?.['caveman@caveman'] || [];
-    for (const i of inst) { if (i?.installPath && fs.existsSync(path.join(i.installPath, '.claude-plugin', 'plugin.json'))) return i.installPath; }
-  } catch {}
-  return '';
-})();
+// Tom das respostas (menu "Tom" ao lado do modelo): normal, lite, full ou ultra. As regras vivem em tom.mjs (embutidas no projeto, baseadas no Caveman, MIT)
+// e vão no --append-system-prompt de cada processo do claude; nada é instalado nem carregado de fora. TILO_CAVEMAN=off fixa o tom normal e esconde o menu;
+// TILO_CAVEMAN_NIVEL = lite (padrão) | full | ultra define o tom das conversas novas.
+const TOM_LIGADO = String(process.env.TILO_CAVEMAN || '').toLowerCase() !== 'off';
+const DEFAULT_TOM = (() => { const n = String(process.env.TILO_CAVEMAN_NIVEL || '').toLowerCase(); return TOM_LIGADO ? (TONS.includes(n) && n !== 'normal' ? n : 'lite') : 'normal'; })();
+const tomDe = (c) => (TOM_LIGADO && TONS.includes(c.tom) ? c.tom : DEFAULT_TOM);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // ---------- aprovações de comandos (o Claude pede; o dono decide na UI) ----------
@@ -307,7 +301,7 @@ const loadChats = () => readJson(P().CHATS, { chats: {} });
 function saveChat(c) { const d = loadChats(); d.chats[c.id] = c; writeJson(P().CHATS, d); }
 // tokens da conversa, lidos do transcript do Claude Code (generalização roda em outra pasta, então o transcript fica em outra pasta)
 const usoDaConversa = (c) => usoDoArquivo(path.join(c.gen ? pastaDeTranscripts(c.gen.dir) : P().TERM_DIR, c.id + '.jsonl'))?.total || null;
-function chatView(c) { return { ...c, uso: usoDaConversa(c), model: MODELS.includes(c.model) ? c.model : DEFAULT_MODEL, ...estadoDoJob(c.id), modo: modoEfetivo(c), pendentes: pendingOf(c.id).length, autoAprovar: autoSessao.has(c.id) }; }
+function chatView(c) { return { ...c, uso: usoDaConversa(c), model: MODELS.includes(c.model) ? c.model : DEFAULT_MODEL, ...estadoDoJob(c.id), modo: modoEfetivo(c), pendentes: pendingOf(c.id).length, autoAprovar: autoSessao.has(c.id), tom: tomDe(c), tomDisponivel: TOM_LIGADO }; }
 
 // Uma conversa = UM processo `claude` em modo stream-json enquanto houver trabalho (como o terminal): mensagens novas vão pelo
 // stdin a qualquer momento e o próprio Claude Code as enfileira e entrega entre dois passos da tarefa. O painel nunca roda dois
@@ -373,7 +367,7 @@ function estadoDoJob(id) {
 
 function startJob(chat, text, { mid = crypto.randomUUID(), persistido = true } = {}) {
   const proj = P();
-  const first = !chat.started;
+  const first = !chat.started, tom = tomDe(chat);
   let prompt = text;
   if (first && chat.contexto) prompt = `Pendência em foco:\n${chat.contexto}\n\nPergunta do dono do projeto:\n${text}`;
   const doc = !!chat.doc; // conversa de documentação: sem terminal; Write/Edit passam pela política de arquivos (avaliarArquivo)
@@ -387,9 +381,8 @@ function startJob(chat, text, { mid = crypto.randomUUID(), persistido = true } =
   // stream-json nos dois sentidos: o painel pode mandar mensagens durante a execução e recebe os eventos (texto parcial, ferramentas, fim de turno).
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--replay-user-messages',
     '--allowedTools', tools, '--setting-sources', 'project', '--settings', SETTINGS_FILE,
-    '--mcp-config', mcpCfg, '--strict-mcp-config', '--permission-prompt-tool', 'mcp__tilo__approve', '--append-system-prompt', JSON.stringify(SYSTEM)];
+    '--mcp-config', mcpCfg, '--strict-mcp-config', '--permission-prompt-tool', 'mcp__tilo__approve', '--append-system-prompt', JSON.stringify(SYSTEM + (tom === 'normal' && first ? '' : ' ' + instrucaoTom(tom)))];
   if (bloqueadas.length) args.push('--disallowedTools', bloqueadas.join(','));
-  if (CAVEMAN_DIR) args.push('--plugin-dir', `"${CAVEMAN_DIR}"`);
   const dirsRef = chat.gen ? chat.gen.leitura : catalogo.pastasDeLeitura(chat.referencias || []); // documentos da biblioteca: leitura liberada, escrita bloqueada (settings)
   if (dirsRef.length) args.push('--add-dir', ...dirsRef.map((d) => `"${d}"`));
   if (chat.plan && !doc) args.push('--permission-mode', 'plan');
@@ -399,7 +392,7 @@ function startJob(chat, text, { mid = crypto.randomUUID(), persistido = true } =
   // shell:true porque no Windows `claude` é .cmd. Nenhum texto livre do usuário vai em args (vai por stdin).
   // Chaves de API vazias de propósito: nunca usar API paga, só a assinatura (login do Claude Code).
   const child = spawn('claude', args, { cwd: chat.gen ? chat.gen.dir : proj.ROOT, // generalização: pasta de rascunhos isolada; demais: raiz do projeto
-    shell: true, windowsHide: true, env: { ...process.env, ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '', ...(CAVEMAN_DIR && { CAVEMAN_DEFAULT_MODE: CAVEMAN_NIVEL }) } });
+    shell: true, windowsHide: true, env: { ...process.env, ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '' } });
   const fluxo = new Fluxo({
     onMensagem: (m) => gravarNoChat(proj, chat.id, (c) => {
       if (m.role === 'user') c.messages.push({ role: 'user', text: m.text, ts: m.ts, mid: m.id, model: modelo, plan: emPlan });
@@ -601,6 +594,23 @@ async function core(req, res, url) {
             lembrados: c.lembrados.map((l) => { const d = descrever('Bash', { command: l.comando }); return { comando: l.comando, quando: l.quando, resumo: d.resumo, passos: d.passos, nivel: d.nivel, rotulo: d.rotulo }; }),
             bloqueios: c.bloqueios, producao: c.producao,
           });
+        }
+        case '/api/alteracoes': { // git visual: o que não foi commitado, o que não foi enviado e a conversa de cada alteração
+          try {
+            const e = await gitx.estado(P().ROOT);
+            if (!e.repo) return send(res, 200, { repo: false });
+            const chats = Object.values(loadChats().chats).filter((c) => !c.gen);
+            const titulos = new Map(chats.map((c) => [c.id, c.title || 'Conversa']));
+            return send(res, 200, {
+              ...e,
+              arquivos: gitx.vincularArquivos(e.arquivos, chats, e.raiz, FERRAMENTAS_EDICAO).map((a) => ({ ...a, sensivel: gitx.ehSensivel(a.caminho) })),
+              naoEnviados: e.naoEnviados.map((c) => ({ ...c, conversas: c.chats.map((id) => ({ id, titulo: titulos.get(id) || null })) })),
+            });
+          } catch (err) { return send(res, 500, { erro: err.message }); }
+        }
+        case '/api/alteracoes/diff': {
+          try { return send(res, 200, await gitx.diff(P().ROOT, url.searchParams.get('arquivo') || '')); }
+          catch (err) { return send(res, 400, { erro: err.message }); }
         }
         case '/api/pendencias': return send(res, 200, { sections: parse(), state: readJson(P().STATE, { items: {} }) });
         case '/api/versao': {
@@ -813,7 +823,7 @@ async function core(req, res, url) {
         const id = crypto.randomUUID();
         const c = {
           id, title: str(body.title, 80) || 'Nova conversa', itemId: str(body.itemId, 12), contexto: str(body.contexto, 4000),
-          model: MODELS.includes(body.model) ? body.model : DEFAULT_MODEL, plan: !!body.plan, modo: MODOS_BASE.includes(body.modo) ? body.modo : 'editar', started: false,
+          model: MODELS.includes(body.model) ? body.model : DEFAULT_MODEL, tom: TONS.includes(body.tom) ? body.tom : DEFAULT_TOM, plan: !!body.plan, modo: MODOS_BASE.includes(body.modo) ? body.modo : 'editar', started: false,
           created: Date.now(), updated: Date.now(), messages: [],
         };
         saveChat(c);
@@ -824,6 +834,7 @@ async function core(req, res, url) {
         if (!c) return send(res, 404, { erro: 'conversa' });
         const antes = { plan: !!c.plan, model: c.model };
         if (body.model !== undefined) { if (!MODELS.includes(body.model)) return send(res, 400, { erro: 'modelo' }); c.model = body.model; }
+        if (body.tom !== undefined) { if (!TONS.includes(body.tom)) return send(res, 400, { erro: 'tom' }); c.tom = body.tom; } // vale no próximo processo do claude (o texto do tom vai no prompt de sistema ao iniciar)
         if (body.plan !== undefined) c.plan = !!body.plan; // atalho de /plan
         if (body.modo !== undefined) { // seletor único de modo
           if (!MODOS.includes(body.modo)) return send(res, 400, { erro: 'modo' });
@@ -970,6 +981,25 @@ async function core(req, res, url) {
         jobs.delete(body.id); midsVistos.delete(body.id);
         writeJson(P().CHATS, d);
         return send(res, 200, { ok: true });
+      }
+      case '/api/alteracoes/commit': { // commita só os arquivos escolhidos; as conversas escolhidas entram na mensagem como trailer "Tilo-Chat"
+        const arquivos = Array.isArray(body.arquivos) ? body.arquivos.slice(0, 500).map(String) : [];
+        const chats = (Array.isArray(body.chats) ? body.chats.slice(0, 20).map(String) : []).filter((id) => UUID.test(id) && loadChats().chats[id]);
+        try {
+          const r = await gitx.commitar(P().ROOT, arquivos, str(body.mensagem, 4000), chats);
+          audit(P(), { chat: chats[0] || '-', tool: 'git', resumo: `commit ${r.sha} (${r.arquivos} arquivo(s))`, risco: 'normal', decisao: 'liberado', quem: 'dono', motivo: 'botão Commitar da aba Alterações' });
+          return send(res, 200, r);
+        } catch (err) { return send(res, 400, { erro: err.message }); }
+      }
+      case '/api/alteracoes/push': { // envia os commits ao GitHub (nunca com --force); é ação de produção, a UI confirma antes
+        try {
+          const r = await gitx.enviar(P().ROOT);
+          audit(P(), { chat: '-', tool: 'git', resumo: `push de ${r.enviados} commit(s)`, risco: 'producao', decisao: 'liberado', quem: 'dono', motivo: 'botão Enviar da aba Alterações' });
+          return send(res, 200, r);
+        } catch (err) {
+          audit(P(), { chat: '-', tool: 'git', resumo: 'push falhou', risco: 'producao', decisao: 'erro', quem: 'dono', motivo: String(err.message).slice(0, 300) });
+          return send(res, 400, { erro: err.message });
+        }
       }
       case '/api/reiniciar': { // reinicia o próprio servidor: responde, encerra conversas em andamento e sobe um processo novo
         audit(P(), { chat: '-', tool: 'servidor', resumo: 'reiniciar o servidor', risco: 'normal', decisao: 'liberado', quem: 'dono', motivo: 'botão Reiniciar' });

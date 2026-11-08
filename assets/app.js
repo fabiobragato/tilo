@@ -166,11 +166,13 @@ const NAV = [
   ['chat', 'Conversar com Claude', 'pi-sparkles'],
   ['documentacao', 'Documentação', 'pi-book'],
   ['biblioteca', 'Biblioteca de documentos', 'pi-bookmark'],
+  ['alteracoes', 'Alterações', 'pi-sitemap'],
   ['permissoes', 'Permissões do Claude', 'pi-shield'],
 ];
 function navCount(id) {
   const open = items().filter(isOpen), liveN = S.chats.filter((c) => c.running).length + S.term.filter((x) => !x.oculto && Date.now() - x.mtime < 120000).length;
   if (id === 'pendencias') { const n = open.filter((i) => i.prio === 'alta').length; return n ? `<span class="nav-count danger" title="Críticas abertas">${n}</span>` : `<span class="nav-count">${open.length}</span>`; }
+  if (id === 'alteracoes' && altTotal()) return `<span class="nav-count" title="Arquivos não commitados + commits não enviados">${altTotal()}</span>`;
   if (id === 'sessoes' && liveN) return `<span class="nav-count live" title="Ativas agora">${liveN}</span>`;
   return '';
 }
@@ -259,7 +261,7 @@ function viewPend() {
   <div class="toolbar">
     <select class="sel" data-chg="fprio" aria-label="Prioridade"><option value="">Todas as prioridades</option>${Object.entries(PRIO).map(([k, v]) => `<option value="${k}" ${f.prio === k ? 'selected' : ''}>${v.e}</option>`).join('')}</select>
     <select class="sel" data-chg="fstat" aria-label="Status">${[['ativos', 'Ativos'], ['', 'Todos'], ['aberto', 'Abertos'], ['andamento', 'Em andamento'], ['feito', 'Feitos'], ['ignorado', 'Ignorados']].map(([v, l]) => `<option value="${v}" ${f.stat === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
-    ${f.q ? `<button class="btn sm" data-act="clearq"><i class="pi pi-times"></i> Busca: ${esc(short(f.q, 24))}</button>` : ''}
+    ${f.q ? `<button class="btn sm" data-act="clearq" title="Limpa a busca e mostra todas as pendências"><i class="pi pi-times"></i> Busca: ${esc(short(f.q, 24))}</button>` : ''}
     <span class="sp"></span><span class="muted small">${filtered.length} item(ns)</span>
   </div>
   <section class="card">${rows || empty('pi-check-circle', 'Nada por aqui com esses filtros 🎉')}</section>${pager('pend', pg)}`;
@@ -285,7 +287,7 @@ function viewSess() {
   const body = pg.rows.map((x) => (f.sessTab === 'painel' ? chatSessRow(x) : termSessRow(x))).join('') ||
     empty('pi-history', f.sessTab === 'painel' ? 'Nenhuma conversa. Use o ícone de conversa numa pendência.' : 'Nenhuma sessão do terminal nos últimos 7 dias.');
   return `<div class="page-head"><div><h1 class="page-title">Sessões</h1><p class="page-sub">Conversas do painel e sessões do Claude Code no terminal deste projeto (últimos 7 dias).</p></div>
-    <button class="btn primary" data-act="new-chat"><i class="pi pi-plus"></i> Nova conversa</button></div>
+    <button class="btn primary" data-act="new-chat" title="Abre uma conversa nova com o Claude neste projeto"><i class="pi pi-plus"></i> Nova conversa</button></div>
   <div class="toolbar"><div class="seg">
     <button data-act="stab" data-t="painel" class="${f.sessTab === 'painel' ? 'on' : ''}"><i class="pi pi-sparkles"></i> Painel <span class="n">${S.chats.length}</span></button>
     <button data-act="stab" data-t="term" class="${f.sessTab === 'term' ? 'on' : ''}"><i class="pi pi-desktop"></i> Terminal <span class="n">${S.term.filter((x) => !x.oculto).length}</span></button></div>
@@ -301,7 +303,7 @@ function chatSessRow(c) {
   const rev = [...c.messages].reverse(), q = rev.find((m) => m.role === 'user')?.text, a = rev.find((m) => m.role === 'assistant')?.text;
   return `<div class="sess">${sessHead(c.title, c.updated, c.running, c.plan, c.model, c.itemId, c.closed, c.uso)}
     ${q ? `<p class="q"><b>Você:</b> ${esc(q)}</p>` : ''}${a ? `<p class="q"><b>Claude:</b> ${esc(a)}</p>` : ''}
-    <div class="acts"><button class="btn sm primary" data-act="open-sess" data-kind="chat" data-id="${c.id}"><i class="pi pi-comments"></i> Abrir</button>${iconBtn('del-chat', 'pi-trash', 'Apagar conversa', `data-id="${c.id}"`, 'danger')}</div></div>`;
+    <div class="acts"><button class="btn sm primary" data-act="open-sess" title="Abre esta conversa no painel" data-kind="chat" data-id="${c.id}"><i class="pi pi-comments"></i> Abrir conversa</button>${iconBtn('del-chat', 'pi-trash', 'Apagar conversa', `data-id="${c.id}"`, 'danger')}</div></div>`;
 }
 function linkSelect(x) {
   return `<select class="sel sm" data-chg="link" data-id="${x.id}" aria-label="Vincular a uma pendência"><option value="">Sem vínculo</option>${items().filter((i) => st(i.id).status !== 'feito').map((i) => `<option value="${i.id}" ${x.itemId === i.id ? 'selected' : ''}>${esc(short(i.title, 48))}</option>`).join('')}</select>`;
@@ -310,7 +312,7 @@ function termSessRow(x) {
   const title = x.apelido || x.title || x.primeiro || x.id.slice(0, 8);
   return `<div class="sess" style="${x.oculto ? 'opacity:.55' : ''}">${sessHead(title, x.mtime, false, x.mode === 'plan', x.model, x.itemId, false, x.uso)}
     ${x.ultimo ? `<p class="q"><b>Você:</b> ${esc(x.ultimo)}</p>` : ''}${x.resposta ? `<p class="q"><b>Claude:</b> ${esc(x.resposta)}</p>` : ''}
-    <div class="acts"><button class="btn sm primary" data-act="open-sess" data-kind="term" data-id="${x.id}"><i class="pi pi-eye"></i> Ver conversa</button>${linkSelect(x)}
+    <div class="acts"><button class="btn sm primary" data-act="open-sess" title="Abre esta conversa no painel" data-kind="term" data-id="${x.id}"><i class="pi pi-eye"></i> Ver conversa</button>${linkSelect(x)}
       ${iconBtn('rename', 'pi-pencil', 'Dar apelido', `data-id="${x.id}"`)}${iconBtn('resume', 'pi-copy', 'Copiar “claude --resume” para retomar no terminal', `data-id="${x.id}"`)}${iconBtn('hide', x.oculto ? 'pi-eye' : 'pi-eye-slash', x.oculto ? 'Mostrar' : 'Ocultar', `data-id="${x.id}"`)}</div></div>`;
 }
 
@@ -334,7 +336,7 @@ const curChat = () => (S.sel?.kind === 'chat' ? S.chats.find((c) => c.id === S.s
 const curTerm = () => (S.sel?.kind === 'term' ? S.term.find((x) => x.id === S.sel.id) : null);
 function viewChat() {
   return `<div class="page-head"><div><h1 class="page-title">Conversar com Claude</h1><p class="page-sub">Usa a sua assinatura do Claude. Comandos: <code>/plan</code> e <code>/model fable|opus|sonnet|haiku</code>.</p></div>
-    <button class="btn primary" data-act="new-chat"><i class="pi pi-plus"></i> Nova conversa</button></div>
+    <button class="btn primary" data-act="new-chat" title="Abre uma conversa nova com o Claude neste projeto"><i class="pi pi-plus"></i> Nova conversa</button></div>
   <div class="chat-layout">
     <aside class="card chat-list"><div class="hd">Conversas</div><div class="bd" id="cl-body"></div></aside>
     <section class="card chat-main">
@@ -346,17 +348,17 @@ function viewChat() {
       <div class="composer" id="composer">
         <div class="note" id="planbar" hidden style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="flex:1;min-width:200px">A conversa ainda está em <b>modo planejamento</b> (o Claude só lê e planeja).</span>
           <button class="btn primary sm" data-act="plan-continuar" title="Desliga o modo plan e manda o Claude executar o plano"><i class="pi pi-play"></i> Sair do planejamento e continuar</button>
-          <button class="btn sm" data-act="plan-sair" title="Só desliga o modo plan; você escreve a próxima mensagem"><i class="pi pi-sign-out"></i> Só sair</button></div>
-        <div class="quick" id="quick">${[['Explique', 'Explique essa pendência em linguagem simples: o que é, por que importa e o que acontece se eu não fizer.'], ['Passo a passo', 'Me dê o passo a passo para eu fazer isso, com comandos exatos quando houver.'], ['Já está feito?', 'Confira no código e em docs/ se isso já está resolvido. Diga com evidência (arquivo e linha).'], ['Recomende', 'Dê uma recomendação clara com prós e contras, para eu decidir.']].map(([l, p]) => `<button class="chipbtn" data-act="quick" data-p="${esc(p)}">${l}</button>`).join('')}</div>
+          <button class="btn sm" data-act="plan-sair" title="Só desliga o modo plan; você escreve a próxima mensagem"><i class="pi pi-sign-out"></i> Só sair do planejamento</button></div>
+        <div class="quick" id="quick">${[['Explique', 'Explique essa pendência em linguagem simples: o que é, por que importa e o que acontece se eu não fizer.'], ['Passo a passo', 'Me dê o passo a passo para eu fazer isso, com comandos exatos quando houver.'], ['Já está feito?', 'Confira no código e em docs/ se isso já está resolvido. Diga com evidência (arquivo e linha).'], ['Recomende', 'Dê uma recomendação clara com prós e contras, para eu decidir.']].map(([l, p]) => `<button class="chipbtn" data-act="quick" data-p="${esc(p)}" title="${esc(p)}">${l}</button>`).join('')}</div>
         <textarea id="msg" placeholder="Pergunte algo… ou use /plan, /model opus (Ctrl+Enter envia)"></textarea>
         <div class="bar"><div class="runinfo"><span class="hint" id="hint"></span><span class="runstate" id="runstate" hidden></span></div>
-          <div class="sendrow"><div class="dd" id="dd-modelo"></div><div class="dd" id="dd-modo"></div>
+          <div class="sendrow"><div class="dd" id="dd-tom"></div><div class="dd" id="dd-modelo"></div><div class="dd" id="dd-modo"></div>
             <button class="btn danger" id="stop" data-act="stop" hidden title="Interrompe o que o Claude está fazendo agora (como Esc no terminal). A conversa continua."><i class="pi pi-stop-circle"></i> Parar</button><button class="btn primary" id="send" data-act="send" title="Enviar (Ctrl+Enter). Com o Claude trabalhando, a mensagem entra na fila e ele a lê no próximo passo."><i class="pi pi-send"></i> Enviar</button></div></div>
       </div>
       <div class="composer" id="closed-bar" hidden><span class="muted small">Esta conversa foi encerrada. O histórico fica guardado; reabra para continuar conversando.</span>
-        <div><button class="btn primary" data-act="close-chat" data-v="0"><i class="pi pi-replay"></i> Reabrir conversa</button></div></div>
+        <div><button class="btn primary" data-act="close-chat" title="Reabre a conversa para voltar a enviar mensagens" data-v="0"><i class="pi pi-replay"></i> Reabrir conversa</button></div></div>
       <div class="composer" id="ro" hidden><span class="muted small">Histórico somente leitura da sessão do terminal. O painel não consegue continuar a mesma sessão (ela pertence ao seu terminal).</span>
-        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" data-act="continue-term"><i class="pi pi-sparkles"></i> Continuar no painel</button><button class="btn" data-act="resume" data-id="${S.sel?.id || ''}"><i class="pi pi-copy"></i> Copiar claude --resume</button></div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn primary" data-act="continue-term" title="Cria uma conversa nova no painel, levando o final desta sessão como contexto"><i class="pi pi-sparkles"></i> Continuar no painel</button><button class="btn" data-act="resume" title="Copia o comando para retomar esta sessão no terminal" data-id="${S.sel?.id || ''}"><i class="pi pi-copy"></i> Copiar claude --resume</button></div></div>
     </section></div>`;
 }
 function updateChat() {
@@ -383,7 +385,7 @@ function updateChat() {
   if (t) { // transcript somente leitura
     const title = t.apelido || t.title || t.primeiro || t.id.slice(0, 8), it = t.itemId && itemById(t.itemId);
     $('#chat-head').innerHTML = `<div class="ttl trunc">${esc(title)}</div>${badge('Terminal', 'neutral', 'pi-desktop')}${modelBadge(t.model)}${t.mode === 'plan' ? planBadge() : ''}${badge(ago(t.mtime), 'neutral', 'pi-clock')}`;
-    $('#chat-ctx').innerHTML = it ? `<div class="ctx"><i class="pi pi-link"></i><div><b>${esc(it.title)}</b></div></div>` : '';
+    $('#chat-ctx').innerHTML = ctxPend(it);
     const tr = S.tx[t.id];
     $('#chat-log').innerHTML = !tr ? '<div class="note">Carregando histórico…</div>' : tr.error ? `<div class="note">${esc(tr.error)}</div>` : '<div class="note">Últimas mensagens da sessão — somente leitura</div>' + tr.messages.map((m) => bubble(m, true)).join('');
     if (tr?.messages) $('#chat-log').scrollTop = 1e9; return;
@@ -392,7 +394,7 @@ function updateChat() {
   $('#chat-head').innerHTML = `<div class="ttl-grp"><div class="ttl trunc" title="Clique para renomear" data-act="rename-chat" style="cursor:text">${esc(c.title)}</div>${iconBtn('rename-chat', 'pi-pencil', 'Renomear conversa')}${c.closed ? closedBadge() : ''}${usoBadge(c.uso)}<span class="badge tone-neutral" data-sess="${c.created}" title="Tempo desde que a conversa foi criada"><i class="pi pi-stopwatch"></i>sessão ${dur(Date.now() - c.created)}</span></div>
     ${c.closed ? '' : `<button class="btn sm" data-act="close-chat" data-v="1" title="Encerrar: guarda o histórico e bloqueia novas mensagens (dá para reabrir)"><i class="pi pi-check-circle"></i> Encerrar</button>`}
     ${iconBtn('del-chat', 'pi-trash', 'Apagar conversa', `data-id="${c.id}"`, 'danger')}`;
-  $('#chat-ctx').innerHTML = it ? `<div class="ctx"><i class="pi pi-link"></i><div><b>${esc(it.title)}</b><div class="muted">${esc(it.section)}</div></div></div>` : '';
+  $('#chat-ctx').innerHTML = ctxPend(it);
   // O estado de execução do agente NÃO bloqueia a entrada: a caixa e o Enviar ficam sempre disponíveis (a mensagem entra na fila do Claude Code).
   $('#stop').hidden = !c.running;
   pintarDD(c);
@@ -423,25 +425,38 @@ function tickTempo() { // relógios do chat: tempo de sessão (cabeçalho) e há
   const rs = $('#runstate'), rt = rs && $('.rt', rs); if (rt && rs.dataset.desde) rt.textContent = dur(Date.now() - Number(rs.dataset.desde));
 }
 setInterval(tickTempo, 1000);
+// Faixa da pendência vinculada à conversa: clicar leva ao item no painel de pendências.
+const ctxPend = (it) => it ? `<button type="button" class="ctx ctx-link" data-act="open-item" data-id="${esc(it.id)}" title="Abrir esta pendência no painel de Pendências"><i class="pi pi-link"></i><span class="ctx-tx"><em>Pendência vinculada · seção ${esc(it.section)}</em><b>${esc(it.title)}</b></span><i class="pi pi-arrow-right ctx-go"></i></button>` : '';
 // ---- Menus de seleção (modo e modelo) na linha do Enviar: botão + lista com ícone, título e explicação de cada opção ----
 const ICONE_MODO = { perguntar: 'pi-question-circle', editar: 'pi-pencil', plan: 'pi-list-check', auto: 'pi-bolt', leitura: 'pi-eye' };
+// Tom das respostas (regras embutidas em tom.mjs, baseadas no Caveman): a chave é gravada na conversa; vale a partir da próxima resposta (o servidor manda o tom ao iniciar o processo do Claude). As chaves devem ser as de TONS em tom.mjs.
+const TONS = {
+  normal: ['Normal', 'Respostas completas e explicativas. Sem corte de tokens: é o que mais gasta.', 'pi-align-left'],
+  lite: ['Enxuto', 'Corta enrolação e mantém frases claras. Corta poucos tokens na resposta. Padrão do Tilo.', 'pi-align-center'],
+  full: ['Curto', 'Frases telegráficas, só o essencial. Corta mais tokens que o Enxuto.', 'pi-align-justify'],
+  ultra: ['Mínimo', 'O mais comprimido possível, com abreviações. É o que mais economiza tokens, mas fica mais seco de ler.', 'pi-minus'],
+};
 const ddItens = (tipo) => (tipo === 'modo'
   ? Object.entries(MODOS).map(([k, v]) => ({ v: k, t: v[0], d: v[1], i: ICONE_MODO[k] }))
+  : tipo === 'tom'
+  ? Object.entries(TONS).map(([k, v]) => ({ v: k, t: v[0], d: v[1], i: v[2] }))
   : Object.entries(MODELOS).map(([k, m]) => ({ v: k, t: `${m.nome} ${m.versao}`, d: m.desc + (k === DEFAULT_MODEL ? ' · padrão' : ''), i: 'pi-microchip-ai' })));
 // O comportamento do menu (abrir, teclado, posição) vive em assets/combo.js (padrão do projeto); aqui só os dados do chat.
 function pintarDD(c) {
-  for (const [tipo, atual] of [['modelo', c.model], ['modo', c.modo]]) {
+  const TIT = { modo: 'Modo da conversa', modelo: 'Modelo', tom: 'Tom das respostas · o Caveman mediu em média 65% menos tokens de resposta (de 22% a 87%)' };
+  const DICA = { modo: 'Modo da conversa (Shift+Tab alterna). Vale na hora, mesmo com o Claude trabalhando.', modelo: 'Modelo (/model). Vale na hora.', tom: 'Tom das respostas. Vale a partir da próxima resposta.' };
+  for (const [tipo, atual] of [['tom', c.tom], ['modelo', c.model], ['modo', c.modo]]) {
     const box = $('#dd-' + tipo); if (!box) continue;
-    box.hidden = tipo === 'modo' && !!c.doc; // conversa de documentação tem modo fixo
+    box.hidden = (tipo === 'modo' && !!c.doc) || (tipo === 'tom' && !c.tomDisponivel); // documentação tem modo fixo; com TILO_CAVEMAN=off o tom fica fixo em normal e o menu some
     box.className = 'dd dd-chat' + (tipo === 'modo' ? ' modo-' + atual : '');
-    Combo.montar(box, { tipo, itens: ddItens(tipo), atual, titulo: tipo === 'modo' ? 'Modo da conversa' : 'Modelo', abrir: 'cima', dir: true,
-      dica: tipo === 'modo' ? 'Modo da conversa (Shift+Tab alterna). Vale na hora, mesmo com o Claude trabalhando.' : 'Modelo (/model). Vale na hora.' });
+    Combo.montar(box, { tipo, itens: ddItens(tipo), atual, titulo: TIT[tipo], abrir: 'cima', dir: true, dica: DICA[tipo] });
   }
 }
 document.addEventListener('combo:escolher', async (e) => { // escolha nos menus do chat (modo e modelo)
   const { tipo, v } = e.detail;
   if (tipo === 'modo') { await cfg({ modo: v }); toast('Modo: ' + MODOS[v][0]); }
   else if (tipo === 'modelo') { await cfg({ model: v }); toast('Modelo: ' + MODELS[v]); }
+  else if (tipo === 'tom') { await cfg({ tom: v }); toast('Tom: ' + TONS[v][0] + ' (a partir da próxima resposta)'); }
   $('#msg')?.focus();
 });
 
@@ -537,8 +552,8 @@ function desenharAprov(box, lista) {
         ${q.options.map((o) => `<label class="aopt"><input type="${q.multiSelect ? 'checkbox' : 'radio'}" name="aq${i}" value="${esc(o.label)}"><span><b>${esc(o.label)}</b>${o.description ? `<em>${esc(o.description)}</em>` : ''}</span></label>`).join('')}
         <label class="aopt"><input type="${q.multiSelect ? 'checkbox' : 'radio'}" name="aq${i}" value="" data-outro="1"><span><b>Outro</b><em>Escreva o que você quer</em></span></label>
         <input type="text" class="aoutro" data-outro-txt="${i}" maxlength="1000" placeholder="Escreva aqui o que você quer…" aria-label="Outro: escreva o que você quer" hidden></fieldset>`).join('')}</div>
-      <div class="aft"><button class="btn" data-act="negar" data-id="${a.id}" title="O Claude segue com a melhor suposição"><i class="pi pi-times"></i> Dispensar</button><span class="sp"></span>
-        <button class="btn primary" data-act="responder" data-id="${a.id}"><i class="pi pi-send"></i> Enviar respostas</button></div>`;
+      <div class="aft"><button class="btn" data-act="negar" data-id="${a.id}" title="O Claude segue com a melhor suposição"><i class="pi pi-times"></i> Dispensar perguntas</button><span class="sp"></span>
+        <button class="btn primary" data-act="responder" title="Envia suas respostas e o Claude segue com elas" data-id="${a.id}"><i class="pi pi-send"></i> Enviar respostas</button></div>`;
     dlg.onchange = (e) => { const f = e.target.closest('.aq'); if (!f) return; const o = f.querySelector('[data-outro]'), t = f.querySelector('.aoutro'); t.hidden = !o.checked; if (o.checked) t.focus(); };
     abrir();
     return;
@@ -552,9 +567,9 @@ function desenharAprov(box, lista) {
       <div class="aexp">${chipNivel(ex.nivel)}<p>${esc(ex.resumo)}</p>${ex.passos.length > 1 ? `<ol>${ex.passos.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}</div>
       <div class="aexact"><span>Comando exato que será executado <em>(a explicação acima é um resumo automático)</em></span><pre class="acode">${esc(a.resumo)}</pre></div>
       ${prod ? `<label class="aconf"><input type="checkbox" id="aprov-ok"> Entendi o que este comando faz e quero que ele rode.</label>` : ''}</div>
-    <div class="aft"><button class="btn danger" data-act="negar" data-id="${a.id}"><i class="pi pi-times"></i> Negar</button><span class="sp"></span>
+    <div class="aft"><button class="btn danger" data-act="negar" title="Não executa este pedido: o Claude é avisado e segue sem ele" data-id="${a.id}"><i class="pi pi-times"></i> Negar</button><span class="sp"></span>
       ${!prod && a.lembravel ? `<button class="btn" data-act="aprovar-lembrar" data-id="${a.id}" title="Libera só este comando exato, daqui para frente, neste projeto. Você revê em Permissões."><i class="pi pi-bookmark"></i> Aprovar e lembrar</button>` : ''}
-      <button class="btn primary" data-act="aprovar" data-id="${a.id}" ${prod ? 'disabled' : ''}><i class="pi pi-check"></i> Aprovar só desta vez</button></div>
+      <button class="btn primary" data-act="aprovar" title="Libera só este pedido; o próximo volta a perguntar" data-id="${a.id}" ${prod ? 'disabled' : ''}><i class="pi pi-check"></i> Aprovar só desta vez</button></div>
     ${prod ? '' : `<div class="afoot"><button class="link" data-act="aprovar-sessao" data-id="${a.id}" title="Libera os próximos comandos comuns desta conversa. Produção e comandos bloqueados continuam como estão.">Aprovar tudo desta conversa</button><span>·</span><span>“Lembrar” fica salvo no projeto (veja em <b>Permissões</b>).</span></div>`}`;
   abrir();
 }
@@ -635,6 +650,7 @@ function render() {
   if (r !== 'documentacao' && S.docTimer) { clearInterval(S.docTimer); S.docTimer = null; }
   if (r === 'documentacao') { if (!v.querySelector('.doc-page')) { v.innerHTML = '<div class="doc-page" id="doc-root"><div class="note">Carregando…</div></div>'; loadDocumentacao(); } else renderArq(); return; }
   if (r === 'biblioteca') { if (!v.querySelector('.bib-page')) { v.innerHTML = '<div class="bib-page" id="bib-root"><div class="note">Carregando…</div></div>'; loadBiblioteca(); } return; }
+  if (r === 'alteracoes') { if (!v.querySelector('.alt-page')) { v.innerHTML = '<div class="alt-page" id="alt-root"></div>'; renderAlteracoes(); loadAlteracoes(true); } return; }
   if (r === 'permissoes') { if (!v.querySelector('.perm-page')) { v.innerHTML = '<div class="perm-page" id="perm-root"><div class="note">Carregando…</div></div>'; loadPermissoes(); } return; }
   v.innerHTML = r === 'pendencias' ? viewPend() : r === 'sessoes' ? viewSess() : viewVisao();
   if (S.focus && r === 'pendencias') document.querySelector(`[data-id="${S.focus}"].item`)?.scrollIntoView({ block: 'center' });
@@ -648,6 +664,10 @@ document.addEventListener('click', async (e) => {
   try {
     switch (act) {
       case 'go': location.hash = '#/' + d.to; break;
+      case 'alt-diff': await altDiff(d.p); break;
+      case 'alt-commit': await altCommit(); break;
+      case 'alt-push': await altPush(); break;
+      case 'alt-recarregar': await loadAlteracoes(true); toast('Atualizado'); break;
       case 'page': S.page[d.key] = Number(d.p); render(); window.scrollTo({ top: 0 }); break;
       case 'sec': S.f.sec = Number(d.n); S.page.pend = 1; render(); break;
       case 'clearq': S.f.q = ''; $('#gsearch').value = ''; S.page.pend = 1; render(); break;
@@ -738,7 +758,7 @@ document.addEventListener('click', async (e) => {
           $('#bdlg').innerHTML = `<div class="ahd"><span class="aic"><i class="pi pi-check-circle"></i></span><div class="att"><b id="bdlg-t">Documentos anexados</b><span class="asub">Cópias criadas em docs/ do projeto.</span></div></div>
             <div class="abd"><ul class="perm-list">${r.criados.map((x) => `<li><b>docs/${esc(x)}</b><span class="muted small">novo</span></li>`).join('')}${r.renomeados.map((x) => `<li><b>docs/${esc(x.para)}</b><span class="muted small">${x.ja ? 'já existia (nada foi alterado)' : `já havia docs/${esc(x.de)}; a cópia ganhou outro nome`}</span></li>`).join('')}</ul>
             <p class="muted small">Cada cópia começa com um aviso de que veio de outro projeto. Revise e ajuste (ou use “Copiar e adaptar com o Claude”) antes de tratá-la como a documentação deste projeto.</p></div>
-            <div class="aft"><span class="sp"></span><button class="btn" data-act="bib-fechar">Fechar</button><a class="btn primary" href="#/documentacao" data-act="bib-fechar"><i class="pi pi-book"></i> Ver a documentação</a></div>`;
+            <div class="aft"><span class="sp"></span><button class="btn" data-act="bib-fechar" title="Fecha esta janela sem alterar nada">Fechar</button><a class="btn primary" href="#/documentacao" data-act="bib-fechar"><i class="pi pi-book"></i> Ver a documentação</a></div>`;
           loadBiblioteca(true); // atualiza "meus documentos" (as cópias novas já existem em docs/)
         } catch (x) { toast(x.message); el.disabled = false; }
         break;
@@ -842,8 +862,8 @@ function renderDocumentacao() {
       <li><b>Tempo e uso:</b> de 5 a 30 minutos, conforme o tamanho do projeto, usando a sua assinatura do Claude.</li></ul></details>
     <div class="doc-acoes"><label>Modelo de IA <select id="doc-modelo" class="sel sm">${optsModelo(D.modelo || DEFAULT_MODEL)}</select></label>
       <span class="sp"></span>
-      <button class="btn ${vazio ? 'primary' : ''}" data-act="doc-iniciar" data-modo="criar" ${rodando ? 'disabled' : ''}><i class="pi pi-plus"></i> ${vazio ? 'Montar a documentação' : 'Criar o que falta'}</button>
-      ${vazio ? '' : `<button class="btn primary" data-act="doc-iniciar" data-modo="atualizar" ${rodando ? 'disabled' : ''}><i class="pi pi-refresh"></i> Conferir com o código e atualizar</button>`}</div></div></div>
+      <button class="btn ${vazio ? 'primary' : ''}" data-act="doc-iniciar" title="O Claude lê o projeto e trabalha na pasta docs/; você acompanha na conversa que abre" data-modo="criar" ${rodando ? 'disabled' : ''}><i class="pi pi-plus"></i> ${vazio ? 'Montar a documentação' : 'Criar o que falta'}</button>
+      ${vazio ? '' : `<button class="btn primary" data-act="doc-iniciar" title="O Claude lê o projeto e trabalha na pasta docs/; você acompanha na conversa que abre" data-modo="atualizar" ${rodando ? 'disabled' : ''}><i class="pi pi-refresh"></i> Conferir com o código e atualizar</button>`}</div></div></div>
   <a class="card doc-lib" href="#/biblioteca"><span class="ico"><i class="pi pi-bookmark"></i></span><div><b>Quer um ponto de partida?</b><span class="muted small">Na <b>Biblioteca de documentos</b> você busca documentos prontos por área (backend, frontend, infra, segurança...), vê o conteúdo e anexa a este projeto.</span></div><i class="pi pi-angle-right"></i></a>`;
   renderArq();
 }
@@ -867,7 +887,7 @@ function renderBiblioteca(forcar) {
   if (forcar || !$('#bib-list')) {
     root.innerHTML = `<div class="page-head"><div><h1 class="page-title">Biblioteca de documentos</h1>
       <p class="page-sub">Documentos técnicos prontos, vindos dos seus outros projetos. Busque por área ou assunto, veja o conteúdo e <b>anexe a este projeto</b>.</p></div>
-      <button class="btn" data-act="bib-pub"><i class="pi pi-upload"></i> Publicar documentos deste projeto</button></div>
+      <button class="btn" data-act="bib-pub" title="Envia para a biblioteca os documentos de docs/ deste projeto"><i class="pi pi-upload"></i> Publicar documentos deste projeto</button></div>
     <div class="card bib-tools"><div class="card-body">
       <div class="bib-search"><i class="pi pi-search"></i><input id="bib-q" class="inp" placeholder="Buscar por assunto (ex.: autenticação, rotas, docker, segurança)" value="${esc(B.q)}" autocomplete="off" aria-label="Buscar documentos"></div>
       <div class="bib-chips" id="bib-chips"></div>
@@ -881,21 +901,21 @@ function renderBiblioteca(forcar) {
   $('#bib-rasc').innerHTML = (B.lotes || []).map((l) => `<div class="card bib-lote"><div class="card-head"><span class="ico"><i class="pi ${l.rodando ? 'pi-spin pi-spinner' : 'pi-file-edit'}"></i></span><h3>${esc(l.titulo)}</h3><span class="muted small">${l.itens.length} de ${l.total} pronto${l.itens.length === 1 ? '' : 's'}${l.rodando ? ' · o Claude está escrevendo…' : ''}</span></div><div class="card-body">
     <p class="muted small">${l.rodando ? 'Pode levar vários minutos. Os rascunhos aparecem aqui conforme ficam prontos. <b>Nada entra na biblioteca sem a sua aceitação.</b>' : l.itens.length ? 'Revise cada rascunho. <b>Aceitar</b> grava na biblioteca e substitui a versão atual, quando houver. Use <b>Ver original</b> para comparar.' : 'Terminou sem gerar rascunhos: o Claude pode ter considerado os documentos específicos demais. Veja a conversa para o motivo.'}</p>
     ${l.itens.map((i) => `<div class="bib-rasc"><div class="bib-meta"><div class="top"><b>${esc(i.titulo)}</b><span class="lv lv-ok">${esc(i.areaNome)}</span></div><span class="muted small">título anterior: ${esc(i.tituloOriginal)}</span>${i.resumo ? `<p>${esc(i.resumo)}</p>` : ''}</div>
-      <div class="bib-rasc-btns"><button class="btn sm" data-act="rasc-ver" data-lote="${l.id}" data-item="${esc(i.item)}"><i class="pi pi-eye"></i> Ver rascunho</button><button class="btn sm" data-act="rasc-orig" data-lote="${l.id}" data-item="${esc(i.item)}">Ver original</button><button class="btn sm primary" data-act="rasc-ok" data-lote="${l.id}" data-item="${esc(i.item)}"><i class="pi pi-check"></i> Aceitar</button><button class="btn sm" data-act="rasc-no" data-lote="${l.id}" data-item="${esc(i.item)}">Descartar</button></div></div>`).join('')}
-    <div class="bib-lote-acoes">${l.chatId ? `<a class="link" href="#/chat?s=${l.chatId}">Ver a conversa</a>` : ''}<span class="sp"></span>${l.itens.length > 1 ? `<button class="btn sm primary" data-act="rasc-ok-todos" data-lote="${l.id}" data-n="${l.itens.length}"><i class="pi pi-check-circle"></i> Aceitar todos (${l.itens.length})</button>` : ''}<button class="btn sm" data-act="rasc-no-todos" data-lote="${l.id}">${l.rodando ? 'Cancelar e descartar' : 'Descartar o lote'}</button></div></div></div>`).join('');
+      <div class="bib-rasc-btns"><button class="btn sm" data-act="rasc-ver" title="Mostra o texto generalizado pelo Claude" data-lote="${l.id}" data-item="${esc(i.item)}"><i class="pi pi-eye"></i> Ver rascunho</button><button class="btn sm" data-act="rasc-orig" title="Mostra o documento como está hoje na biblioteca" data-lote="${l.id}" data-item="${esc(i.item)}">Ver original</button><button class="btn sm primary" data-act="rasc-ok" title="Coloca este rascunho na biblioteca no lugar da versão atual" data-lote="${l.id}" data-item="${esc(i.item)}"><i class="pi pi-check"></i> Aceitar rascunho</button><button class="btn sm" data-act="rasc-no" title="Joga fora este rascunho; a biblioteca não muda" data-lote="${l.id}" data-item="${esc(i.item)}">Descartar rascunho</button></div></div>`).join('')}
+    <div class="bib-lote-acoes">${l.chatId ? `<a class="link" href="#/chat?s=${l.chatId}">Ver a conversa</a>` : ''}<span class="sp"></span>${l.itens.length > 1 ? `<button class="btn sm primary" data-act="rasc-ok-todos" title="Coloca todos os rascunhos do lote na biblioteca, no lugar das versões atuais" data-lote="${l.id}" data-n="${l.itens.length}"><i class="pi pi-check-circle"></i> Aceitar todos (${l.itens.length})</button>` : ''}<button class="btn sm" data-act="rasc-no-todos" title="Joga fora os rascunhos do lote; a biblioteca não muda" data-lote="${l.id}">${l.rodando ? 'Cancelar e descartar' : 'Descartar o lote'}</button></div></div></div>`).join('');
   $('#bib-chips').innerHTML = `<button class="chipbtn ${B.area ? '' : 'on'}" data-act="bib-area" data-a="">Todas as áreas <span>${B.q ? B.docs.length : totalGeral}</span></button>` +
     B.areas.filter((a) => a.total).map((a) => `<button class="chipbtn ${B.area === a.id ? 'on' : ''}" data-act="bib-area" data-a="${a.id}">${esc(a.nome)} <span>${B.docs.filter((d) => d.area === a.id).length}</span></button>`).join('');
   $('#bib-list').innerHTML = !totalGeral
-    ? `<div class="card"><div class="card-body bib-vazio"><i class="pi pi-bookmark"></i><b>A biblioteca ainda está vazia</b><span class="muted">Publique a documentação técnica deste (ou de outro) projeto para reaproveitá-la em projetos novos ou já existentes.</span><button class="btn primary" data-act="bib-pub"><i class="pi pi-upload"></i> Publicar documentos deste projeto</button></div></div>`
+    ? `<div class="card"><div class="card-body bib-vazio"><i class="pi pi-bookmark"></i><b>A biblioteca ainda está vazia</b><span class="muted">Publique a documentação técnica deste (ou de outro) projeto para reaproveitá-la em projetos novos ou já existentes.</span><button class="btn primary" data-act="bib-pub" title="Envia para a biblioteca os documentos de docs/ deste projeto"><i class="pi pi-upload"></i> Publicar documentos deste projeto</button></div></div>`
     : visiveis.length ? visiveis.map((d) => `<label class="bib-doc ${B.sel.has(d.id) ? 'on' : ''}"><input type="checkbox" class="bib-sel" value="${esc(d.id)}" ${B.sel.has(d.id) ? 'checked' : ''}>
         <div class="bib-meta"><div class="top"><b>${esc(d.titulo)}</b><span class="lv lv-ok">${esc(d.areaNome)}</span></div>${d.resumo ? `<p>${esc(d.resumo)}</p>` : ''}<span class="muted small">${esc(d.colecaoNome)} · ${esc(d.arquivo)} · ${Math.max(1, Math.round(d.bytes / 1024))} KB</span></div>
-        <button type="button" class="btn sm" data-act="bib-ver" data-id="${esc(d.id)}"><i class="pi pi-eye"></i> Ver</button></label>`).join('')
+        <button type="button" class="btn sm" data-act="bib-ver" title="Mostra o texto do documento sem anexar" data-id="${esc(d.id)}"><i class="pi pi-eye"></i> Ver documento</button></label>`).join('')
     : `<div class="card"><div class="card-body bib-vazio"><i class="pi pi-search"></i><b>Nada encontrado</b><span class="muted">Tente outras palavras ou outra área.</span></div></div>`;
   const n = B.sel.size, bar = $('#bib-bar');
   bar.hidden = !n;
-  bar.innerHTML = n ? `<b>${n} documento${n === 1 ? '' : 's'} selecionado${n === 1 ? '' : 's'}</b><span class="sp"></span><button class="btn" data-act="bib-limpar">Limpar seleção</button><button class="btn" data-act="gen-abrir" title="O Claude reescreve os documentos escolhidos sem o que é específico do produto; você revisa antes de entrarem na biblioteca"><i class="pi pi-sparkles"></i> Generalizar com o Claude</button><button class="btn primary" data-act="bib-anexar"><i class="pi pi-paperclip"></i> Anexar ao projeto</button>` : '';
-  $('#bib-cols').innerHTML = B.colecoes.length ? `<details class="doc-det bib-gerir"><summary>Gerenciar o que foi publicado</summary><div class="bib-gerir-topo"><button class="btn sm" data-act="gen-abrir" data-todos="1"><i class="pi pi-sparkles"></i> Generalizar toda a biblioteca com o Claude</button></div>${B.colecoes.map((c) => `<div class="bib-col-bloco"><div class="bib-col-cab"><b>${esc(c.nome)}</b><span class="muted small">${c.total} documento${c.total === 1 ? '' : 's'}${c.publicadoEm ? ` · publicado em ${quando(c.publicadoEm)}` : ''}</span><span class="sp"></span><button class="btn sm" data-act="bib-col-del" data-id="${esc(c.id)}" data-nome="${esc(c.nome)}"><i class="pi pi-trash"></i> Remover tudo desta origem</button></div>
-    <ul class="perm-list">${B.docs.filter((d) => d.colecao === c.id).map((d) => `<li class="bib-linha"><span><b>${esc(d.titulo)}</b> <span class="muted small">${esc(d.areaNome)} · ${esc(d.arquivo)}</span></span><button class="btn sm" data-act="bib-doc-del" data-id="${esc(d.id)}" data-nome="${esc(d.titulo)}"><i class="pi pi-times"></i> Remover</button></li>`).join('')}</ul></div>`).join('')}</details>` : '';
+  bar.innerHTML = n ? `<b>${n} documento${n === 1 ? '' : 's'} selecionado${n === 1 ? '' : 's'}</b><span class="sp"></span><button class="btn" data-act="bib-limpar" title="Tira a marca de todos os documentos escolhidos"><i class="pi pi-minus-circle"></i> Desmarcar tudo</button><button class="btn" data-act="gen-abrir" title="O Claude reescreve os documentos escolhidos sem o que é específico do produto; você revisa antes de entrarem na biblioteca"><i class="pi pi-sparkles"></i> Generalizar com o Claude</button><button class="btn primary" data-act="bib-anexar" title="Traz os documentos marcados para a pasta docs/ deste projeto"><i class="pi pi-paperclip"></i> Anexar ao projeto</button>` : '';
+  $('#bib-cols').innerHTML = B.colecoes.length ? `<details class="doc-det bib-gerir"><summary>Gerenciar o que foi publicado</summary><div class="bib-gerir-topo"><button class="btn sm" data-act="gen-abrir" data-todos="1"><i class="pi pi-sparkles"></i> Generalizar toda a biblioteca com o Claude</button></div>${B.colecoes.map((c) => `<div class="bib-col-bloco"><div class="bib-col-cab"><b>${esc(c.nome)}</b><span class="muted small">${c.total} documento${c.total === 1 ? '' : 's'}${c.publicadoEm ? ` · publicado em ${quando(c.publicadoEm)}` : ''}</span><span class="sp"></span><button class="btn sm" data-act="bib-col-del" title="Remove da biblioteca todos os documentos desta origem; projetos que já usaram não mudam" data-id="${esc(c.id)}" data-nome="${esc(c.nome)}"><i class="pi pi-trash"></i> Remover tudo desta origem</button></div>
+    <ul class="perm-list">${B.docs.filter((d) => d.colecao === c.id).map((d) => `<li class="bib-linha"><span><b>${esc(d.titulo)}</b> <span class="muted small">${esc(d.areaNome)} · ${esc(d.arquivo)}</span></span><button class="btn sm" data-act="bib-doc-del" title="Remove só da biblioteca; o original no projeto de origem não é afetado" data-id="${esc(d.id)}" data-nome="${esc(d.titulo)}"><i class="pi pi-times"></i> Remover da biblioteca</button></li>`).join('')}</ul></div>`).join('')}</details>` : '';
 }
 function abrirAnexar() {
   const B = S.bib, sel = B.docs.filter((d) => B.sel.has(d.id)), nome = B.projeto?.nome || 'o projeto';
@@ -905,7 +925,7 @@ function abrirAnexar() {
       <label class="bib-opt"><input type="radio" name="bib-modo" value="adaptar" checked><span><b>Copiar e adaptar com o Claude <em>(recomendado)</em></b><span class="muted small">O Claude usa os documentos como base e escreve versões que descrevem <b>este projeto</b>, conferidas no código. Leva alguns minutos e usa a sua assinatura.</span></span></label>
       <label class="bib-opt"><input type="radio" name="bib-modo" value="copiar"><span><b>Só copiar</b><span class="muted small">Cria cópias exatas em <code>docs/</code>, na hora, com um aviso no topo. Podem citar nomes e regras do outro projeto: revise. Se já existir um documento com o mesmo nome, ele <b>não é substituído</b>: a cópia ganha o nome da origem.</span></span></label>
       <div id="bib-modelo-box"><label class="bib-mod">Modelo de IA <select id="bib-modelo" class="sel sm">${optsModelo(DEFAULT_MODEL)}</select></label></div></div>
-    <div class="aft"><span class="sp"></span><button class="btn" data-act="bib-fechar">Cancelar</button><button class="btn primary" data-act="bib-anexar-ok"><i class="pi pi-check"></i> Anexar</button></div>`;
+    <div class="aft"><span class="sp"></span><button class="btn" data-act="bib-fechar" title="Fecha esta janela sem alterar nada">Cancelar</button><button class="btn primary" data-act="bib-anexar-ok" title="Anexa os documentos marcados do jeito escolhido acima"><i class="pi pi-check"></i> Anexar documentos</button></div>`;
   $('#bdlg').showModal();
 }
 function abrirGeneralizar(todos) {
@@ -917,7 +937,7 @@ function abrirGeneralizar(todos) {
       <li>O resultado vira <b>rascunho</b>: você vê, compara com o original e só então aceita. Nada entra na biblioteca sozinho.</li>
       <li>Leva de alguns minutos a algumas dezenas de minutos, conforme a quantidade, e usa a sua assinatura do Claude.</li></ul>
       <label class="bib-mod">Modelo de IA <select id="bib-modelo" class="sel sm">${optsModelo(DEFAULT_MODEL)}</select></label></div>
-    <div class="aft"><span class="sp"></span><button class="btn" data-act="bib-fechar">Cancelar</button><button class="btn primary" data-act="gen-ok" data-fonte="biblioteca" data-ids="${esc(JSON.stringify(ids))}"><i class="pi pi-sparkles"></i> Começar</button></div>`;
+    <div class="aft"><span class="sp"></span><button class="btn" data-act="bib-fechar" title="Fecha esta janela sem alterar nada">Cancelar</button><button class="btn primary" data-act="gen-ok" title="O Claude reescreve os documentos sem o que é do produto; os rascunhos aparecem no topo da biblioteca para você revisar" data-fonte="biblioteca" data-ids="${esc(JSON.stringify(ids))}"><i class="pi pi-sparkles"></i> Começar</button></div>`;
   $('#bdlg').showModal();
 }
 function abrirPublicar() {
@@ -927,7 +947,7 @@ function abrirPublicar() {
       <div class="pub-lista">${meus.map((a) => `<div class="pub-area-bloco"><label class="pub-ah"><input type="checkbox" class="pub-area" value="${a.area}"> <b>${esc(a.nome)}</b> <span class="muted small">${a.arquivos.length} documento${a.arquivos.length === 1 ? '' : 's'}${a.area === 'data-platform' ? ' (costuma ser específico do produto)' : ''} · marcar todos</span></label>
         ${a.arquivos.map((f) => `<label class="pub-item"><input type="checkbox" class="pub-doc" data-area="${a.area}" value="${esc(a.area + '/' + f.rel)}"> ${esc(f.titulo)} <span class="muted small">${esc(f.rel)}</span><button type="button" class="link" data-act="file" data-p="${esc('docs/' + a.area + '/' + f.rel)}">ver</button></label>`).join('')}</div>`).join('')}</div>`
       : '<p class="muted">Este projeto ainda não tem documentação técnica em <code>docs/</code> (backend, frontend, infra, deploy, segurança ou dados). Monte-a na aba Documentação primeiro.</p>'}</div>
-    <div class="aft">${meus.length ? '<label class="bib-mod">Modelo de IA <select id="bib-modelo" class="sel sm">' + optsModelo(DEFAULT_MODEL) + '</select></label>' : ''}<span class="sp"></span><button class="btn" data-act="bib-fechar">Cancelar</button>${meus.length ? '<button class="btn" data-act="bib-pub-ok"><i class="pi pi-upload"></i> Publicar como está</button><button class="btn primary" data-act="gen-ok" data-fonte="publicar"><i class="pi pi-sparkles"></i> Generalizar com o Claude</button>' : ''}</div>`;
+    <div class="aft">${meus.length ? '<label class="bib-mod">Modelo de IA <select id="bib-modelo" class="sel sm">' + optsModelo(DEFAULT_MODEL) + '</select></label>' : ''}<span class="sp"></span><button class="btn" data-act="bib-fechar" title="Fecha esta janela sem alterar nada">Cancelar</button>${meus.length ? '<button class="btn" data-act="bib-pub-ok" title="Publica os documentos marcados na biblioteca sem reescrever"><i class="pi pi-upload"></i> Publicar como está</button><button class="btn primary" data-act="gen-ok" title="O Claude reescreve os documentos sem o que é do produto; os rascunhos aparecem no topo da biblioteca para você revisar" data-fonte="publicar"><i class="pi pi-sparkles"></i> Generalizar com o Claude</button>' : ''}</div>`;
   $('#bdlg').showModal();
 }
 const NIVEL = { leitura: ['Só consulta', 'lv-ok'], altera: ['Altera arquivos', 'lv-warn'], rede: ['Usa a internet', 'lv-warn'], servidor: ['Mexe em servidor/produção', 'lv-bad'], desconhecido: ['Não reconhecido', 'lv-warn'] };
@@ -947,8 +967,8 @@ function renderPermissoes() {
     return `<div class="perm-res ${cls}"><b>${txt}</b><span>${esc(t.motivo)} · ${t.origem === 'projeto' ? 'regra deste projeto' : 'regra de fábrica'}</span><span class="what">${chipNivel(t.explicacao.nivel)} ${esc(t.explicacao.resumo)}</span></div>`;
   })();
   const regra = (tipo, titulo, ajuda, itens, ph) => `<div class="perm-sub"><h4>${titulo}</h4><p class="muted small">${ajuda}</p>
-    ${itens.length ? `<ul class="perm-list">${itens.map((r, i) => `<li><b>Comandos que contenham “${esc(r.texto)}”</b><span class="muted">${esc(r.motivo)}</span><button class="btn sm" data-act="perm-del" data-tipo="${tipo}" data-i="${i}"><i class="pi pi-trash"></i> Remover</button></li>`).join('')}</ul>` : ''}
-    <div class="perm-add"><input class="inp" id="perm-${tipo}-texto" placeholder="${ph}" maxlength="80" aria-label="Texto a procurar"><input class="inp" id="perm-${tipo}-motivo" placeholder="Motivo (opcional)" maxlength="120" aria-label="Motivo"><button class="btn sm" data-act="perm-add" data-tipo="${tipo}"><i class="pi pi-plus"></i> Adicionar</button></div></div>`;
+    ${itens.length ? `<ul class="perm-list">${itens.map((r, i) => `<li><b>Comandos que contenham “${esc(r.texto)}”</b><span class="muted">${esc(r.motivo)}</span><button class="btn sm" data-act="perm-del" title="Apaga esta regra da lista" data-tipo="${tipo}" data-i="${i}"><i class="pi pi-trash"></i> Remover regra</button></li>`).join('')}</ul>` : ''}
+    <div class="perm-add"><input class="inp" id="perm-${tipo}-texto" placeholder="${ph}" maxlength="80" aria-label="Texto a procurar"><input class="inp" id="perm-${tipo}-motivo" placeholder="Motivo (opcional)" maxlength="120" aria-label="Motivo"><button class="btn sm" data-act="perm-add" title="Cria a regra: comandos que contenham este texto passam a seguir esta lista" data-tipo="${tipo}"><i class="pi pi-plus"></i> Adicionar regra</button></div></div>`;
   root.innerHTML = `<div class="page-head"><div><h1 class="page-title">Permissões do Claude</h1>
     <p class="page-sub">Aqui você controla o que o Claude pode fazer <b>sozinho</b> neste projeto. Tudo que não está liberado, ele <b>pergunta antes</b> (aparece um aviso na tela). Dica: quando o aviso aparecer, clique em <b>Aprovar e lembrar</b> e o comando entra na lista abaixo.</p></div></div>
   ${P.erro ? `<div class="perm-res bad">${esc(P.erro)}</div>` : ''}
@@ -962,7 +982,7 @@ function renderPermissoes() {
 
   <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-bookmark"></i></span><h3>Comandos que você liberou</h3><span class="muted small">${P.lembrados.length}</span></div><div class="card-body">
     <p class="muted small">Quando o Claude pedir um comando novo, use <b>Aprovar e lembrar</b>. Só este comando exato fica liberado. Remova quando quiser.</p>
-    ${P.lembrados.length ? `<ul class="perm-list">${P.lembrados.map((l, i) => `<li><span class="top">${chipNivel(l.nivel)}<b>${esc(l.resumo)}</b></span>${l.passos.length > 1 ? `<ol class="muted small">${l.passos.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}<code>${esc(l.comando)}</code><span class="muted small">Liberado em ${quando(l.quando)}</span><button class="btn sm" data-act="perm-esquecer" data-i="${i}"><i class="pi pi-times"></i> Remover permissão</button></li>`).join('')}</ul>` : '<div class="muted small">Nada ainda. Eles vão aparecendo aqui conforme você aprova.</div>'}</div></div>
+    ${P.lembrados.length ? `<ul class="perm-list">${P.lembrados.map((l, i) => `<li><span class="top">${chipNivel(l.nivel)}<b>${esc(l.resumo)}</b></span>${l.passos.length > 1 ? `<ol class="muted small">${l.passos.map((x) => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}<code>${esc(l.comando)}</code><span class="muted small">Liberado em ${quando(l.quando)}</span><button class="btn sm" data-act="perm-esquecer" title="Apaga esta permissão; da próxima vez o Claude pergunta de novo" data-i="${i}"><i class="pi pi-times"></i> Remover permissão</button></li>`).join('')}</ul>` : '<div class="muted small">Nada ainda. Eles vão aparecendo aqui conforme você aprova.</div>'}</div></div>
 
   <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-ban"></i></span><h3>Nunca permitido</h3><span class="lv lv-bad">Bloqueado</span></div><div class="card-body">
     <p class="muted small">O Claude não consegue rodar isso, nem pedindo. Vale para todos os projetos e não dá para desligar.</p><details class="perm-fab"><summary>Ver tudo o que está bloqueado (${P.fabrica.negar.length})</summary>${lista(P.fabrica.negar, '')}</details>
@@ -973,13 +993,118 @@ function renderPermissoes() {
     ${regra('producao', 'Mais itens só deste projeto', 'Trata como produção qualquer comando que contenha o texto escrito.', P.producao, 'Ex.: kubectl')}</div></div>
 
   <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-play"></i></span><h3>Testar um comando <span class="muted small">(só simula, não executa nada)</span></h3></div><div class="card-body">
-    <div class="perm-testrow"><input id="perm-cmd" class="inp" placeholder="Cole aqui um comando para ver o que aconteceria" value="${esc(t?.cmd || '')}" autocomplete="off"><button class="btn" data-act="perm-test"><i class="pi pi-search"></i> Testar</button></div>${res}</div></div>`;
+    <div class="perm-testrow"><input id="perm-cmd" class="inp" placeholder="Cole aqui um comando para ver o que aconteceria" value="${esc(t?.cmd || '')}" autocomplete="off"><button class="btn" data-act="perm-test" title="Mostra o que o Tilo faria com este comando (liberar, perguntar ou bloquear), sem executá-lo"><i class="pi pi-search"></i> Testar comando</button></div>${res}</div></div>`;
 }
+// ---------- alterações (git visual) ----------
+// S.alt: dados (resposta de /api/alteracoes), sel (arquivos marcados para o commit), vistos (arquivos já apresentados; os novos entram marcados),
+// fora (conversas desmarcadas), extra (conversas vinculadas à mão), msg (mensagem do commit), abertos/diffs (diffs expandidos), busy.
+S.alt = { dados: null, sel: new Set(), vistos: new Set(), fora: new Set(), extra: new Set(), msg: '', abertos: new Set(), diffs: {}, busy: false, sig: '', erro: '' };
+const altTotal = () => (S.alt.dados?.repo ? S.alt.dados.arquivos.length + S.alt.dados.naoEnviados.length : 0);
+async function loadAlteracoes(forcar) {
+  try {
+    const g = await api('/api/alteracoes'), A = S.alt;
+    const sig = JSON.stringify(g);
+    if (!forcar && sig === A.sig) return;
+    A.sig = sig; A.dados = g; A.erro = '';
+    if (g.repo) {
+      const atuais = new Set(g.arquivos.map((a) => a.caminho));
+      for (const a of g.arquivos) if (!A.vistos.has(a.caminho)) { A.vistos.add(a.caminho); if (!a.sensivel) A.sel.add(a.caminho); }
+      for (const c of [...A.sel]) if (!atuais.has(c)) A.sel.delete(c);
+      for (const c of Object.keys(A.diffs)) if (!atuais.has(c)) { delete A.diffs[c]; A.abertos.delete(c); }
+    }
+  } catch (x) { S.alt.dados = null; S.alt.erro = x.message; }
+  renderNav();
+  if (route() === 'alteracoes' && !document.activeElement?.closest?.('#alt-root textarea')) renderAlteracoes();
+}
+const altConversasDoCommit = () => { // conversas que entram no commit: as que editaram os arquivos marcados + as vinculadas à mão, menos as desmarcadas
+  const A = S.alt, m = new Map();
+  for (const a of A.dados?.arquivos || []) if (A.sel.has(a.caminho)) for (const c of a.conversas) m.set(c.id, c.titulo);
+  for (const id of A.extra) { const c = S.chats.find((x) => x.id === id); if (c) m.set(id, c.title); }
+  return [...m].map(([id, titulo]) => ({ id, titulo, marcada: !A.fora.has(id) }));
+};
+const altChip = (c) => c.titulo == null ? `<span class="alt-chip off" title="Esta conversa foi apagada"><i class="pi pi-comment"></i> conversa apagada</span>`
+  : `<button class="alt-chip" data-act="open-sess" data-kind="chat" data-id="${c.id}" title="Abrir a conversa “${esc(c.titulo)}”"><i class="pi pi-comment"></i> ${esc(short(c.titulo, 34))}</button>`;
+function altDiffHtml(texto) {
+  return texto.split('\n').map((l) => `<span class="${l.startsWith('+') && !l.startsWith('+++') ? 'add' : l.startsWith('-') && !l.startsWith('---') ? 'del' : l.startsWith('@@') ? 'hunk' : ''}">${esc(l) || ' '}</span>`).join('');
+}
+function renderAlteracoes() {
+  const root = $('#alt-root'); if (!root) return;
+  const A = S.alt, g = A.dados;
+  const cab = (sub) => `<div class="page-head"><div><h1 class="page-title">Alterações</h1><p class="page-sub">${sub}</p></div></div>`;
+  if (!g) { root.innerHTML = cab('Veja o que mudou no projeto e de qual conversa veio cada mudança.') + `<div class="note">${A.erro ? `Não consegui carregar: ${esc(A.erro)}` : 'Carregando…'}</div>`; return; }
+  if (!g.repo) { root.innerHTML = cab('Veja o que mudou no projeto e de qual conversa veio cada mudança.') + empty('pi-sitemap', 'A pasta deste projeto não é um repositório git, então não há alterações para mostrar.'); return; }
+  const ult = g.naoEnviados.length;
+  const remoto = g.semRemoto ? badge('sem GitHub configurado', 'warn', 'pi-exclamation-triangle') : g.upstream ? badge('acompanha ' + g.upstream, 'neutral', 'pi-github') : badge('branch ainda não enviada', 'warn', 'pi-exclamation-triangle');
+  const arqs = g.arquivos.map((a) => {
+    const tom = a.rotulo === 'novo' ? 'success' : a.rotulo === 'apagado' ? 'danger' : a.rotulo === 'conflito' ? 'danger' : 'info';
+    const aberto = A.abertos.has(a.caminho), df = A.diffs[a.caminho];
+    return `<li class="alt-file"><div class="alt-row">
+      <input type="checkbox" class="sw" data-chg="alt-sel" data-p="${esc(a.caminho)}" ${A.sel.has(a.caminho) ? 'checked' : ''} ${a.sensivel ? 'disabled' : ''} title="${a.sensivel ? 'Parece conter segredos: o Tilo não commita este arquivo' : 'Incluir este arquivo no commit'}" aria-label="Incluir ${esc(a.caminho)} no commit">
+      ${badge(a.rotulo, tom)}<code class="alt-path">${esc(a.caminho)}</code>${a.antigo ? `<span class="muted small">(era ${esc(a.antigo)})</span>` : ''}
+      <span class="alt-conv">${a.conversas.length ? a.conversas.map(altChip).join('') : '<span class="muted small" title="Nenhuma conversa do Tilo editou este arquivo (ou a mudança veio de um comando ou de fora do Tilo)">sem conversa vinculada</span>'}</span>
+      ${a.sensivel ? '' : `<button class="btn sm" data-act="alt-diff" data-p="${esc(a.caminho)}" title="${aberto ? 'Esconde' : 'Mostra'} o que mudou neste arquivo"><i class="pi ${aberto ? 'pi-chevron-up' : 'pi-eye'}"></i> ${aberto ? 'Esconder' : 'Ver mudanças'}</button>`}</div>
+      ${aberto ? `<pre class="alt-diff">${df ? (df.erro ? esc(df.erro) : altDiffHtml(df.diff) + (df.cortado ? '\n<span class="hunk">… diff cortado (arquivo grande)</span>' : '')) : 'Carregando…'}</pre>` : ''}</li>`;
+  }).join('');
+  const conv = altConversasDoCommit(), nSel = A.sel.size;
+  const outras = S.chats.filter((c) => !c.gen && !conv.some((x) => x.id === c.id));
+  const form = g.arquivos.length ? `<div class="alt-form">
+      <label class="muted small" for="alt-msg">Mensagem do commit</label>
+      <textarea id="alt-msg" class="inp alt-msg" rows="3" maxlength="4000" placeholder="Descreva o que mudou" data-alt="msg">${esc(A.msg)}</textarea>
+      <div class="alt-vinc"><span class="muted small">Conversas ligadas a este commit:</span>
+        ${conv.length ? conv.map((c) => `<label class="alt-chk"><input type="checkbox" data-chg="alt-conv" data-id="${c.id}" ${c.marcada ? 'checked' : ''}> ${esc(short(c.titulo, 34))}</label>`).join('') : '<span class="muted small">nenhuma</span>'}
+        ${outras.length ? `<select class="sel sm" data-chg="alt-addchat" aria-label="Ligar outra conversa"><option value="">Ligar outra conversa…</option>${outras.map((c) => `<option value="${c.id}">${esc(short(c.title, 40))}</option>`).join('')}</select>` : ''}</div>
+      <p class="muted small">As conversas marcadas ficam gravadas na mensagem do commit (linha “Tilo-Chat”), para você saber depois de onde veio a mudança.</p>
+      <div class="alt-actions"><button class="btn primary" data-act="alt-commit" ${A.busy || !nSel ? 'disabled' : ''} title="Cria um commit só com os arquivos marcados"><i class="pi pi-check"></i> Commitar ${nSel} arquivo${nSel === 1 ? '' : 's'}</button></div></div>` : '';
+  const commits = g.naoEnviados.map((c) => `<li class="alt-commit"><div class="alt-row"><code>${esc(c.curto)}</code><b>${esc(c.assunto)}</b><span class="muted small">${esc(c.autor)} · há ${ago(c.quando)}</span>
+      <span class="alt-conv">${c.conversas.length ? c.conversas.map(altChip).join('') : '<span class="muted small" title="Este commit não tem a linha Tilo-Chat (foi feito fora do Tilo ou antes deste recurso)">sem conversa vinculada</span>'}</span></div></li>`).join('');
+  const aviso = g.semRemoto ? 'Este repositório não tem um remoto (GitHub) configurado.' : g.atras ? `O GitHub tem ${g.atras} commit${g.atras === 1 ? '' : 's'} que você ainda não baixou.` : g.semUpstream ? 'Esta branch ainda não existe no GitHub; o envio vai criá-la.' : '';
+  root.innerHTML = `${cab('O que mudou no projeto e ainda não está no GitHub — e de qual conversa veio cada mudança.')}
+    <div class="alt-top">${badge(g.branch || 'sem branch', 'primary', 'pi-sitemap')}${remoto}${g.relativa ? `<span class="muted small">pasta do projeto: ${esc(g.relativa)}</span>` : ''}
+      <button class="btn sm" data-act="alt-recarregar" title="Lê o estado do git de novo"><i class="pi pi-refresh"></i> Atualizar</button></div>
+    <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-pencil"></i></span><h3>Ainda não commitado</h3><span class="muted small">${g.arquivos.length}</span></div><div class="card-body">
+      ${g.arquivos.length ? `<p class="muted small">Marque os arquivos que entram no próximo commit. “Sem conversa vinculada” quer dizer que nenhuma conversa do Tilo editou o arquivo diretamente (mudanças feitas por comando ou fora do Tilo não são atribuídas).</p><ul class="alt-list">${arqs}</ul>${form}` : '<div class="muted small">Nada para commitar: tudo o que foi alterado já está num commit.</div>'}</div></div>
+    <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-upload"></i></span><h3>Commitado, mas não enviado ao GitHub</h3><span class="muted small">${ult}</span></div><div class="card-body">
+      ${aviso ? `<p class="muted small">${esc(aviso)}</p>` : ''}
+      ${ult ? `<ul class="alt-list">${commits}</ul>` : '<div class="muted small">Nenhum commit esperando envio.</div>'}
+      ${ult && !g.semRemoto ? `<div class="alt-actions"><button class="btn primary" data-act="alt-push" ${A.busy ? 'disabled' : ''} title="Envia os commits para o GitHub (git push, nunca forçado)"><i class="pi pi-upload"></i> Enviar ${ult} commit${ult === 1 ? '' : 's'} ao GitHub</button></div>` : ''}</div></div>`;
+}
+async function altDiff(caminho) {
+  const A = S.alt;
+  if (A.abertos.has(caminho)) { A.abertos.delete(caminho); renderAlteracoes(); return; }
+  A.abertos.add(caminho); renderAlteracoes();
+  try { A.diffs[caminho] = await api('/api/alteracoes/diff?arquivo=' + encodeURIComponent(caminho)); } catch (x) { A.diffs[caminho] = { erro: x.message }; }
+  renderAlteracoes();
+}
+async function altCommit() {
+  const A = S.alt, msg = A.msg.trim(), arquivos = [...A.sel];
+  if (!arquivos.length) return toast('Marque pelo menos um arquivo');
+  if (!msg) return toast('Escreva a mensagem do commit');
+  const chats = altConversasDoCommit().filter((c) => c.marcada).map((c) => c.id);
+  if (!(await confirmar({ titulo: `Commitar ${arquivos.length} arquivo${arquivos.length === 1 ? '' : 's'}?`, texto: 'Cria um commit local com os arquivos marcados. Nada vai para o GitHub ainda.', ok: 'Commitar', icone: 'pi-check' }))) return;
+  A.busy = true; renderAlteracoes();
+  try { const r = await api('/api/alteracoes/commit', { arquivos, mensagem: msg, chats }); A.msg = ''; A.fora.clear(); A.extra.clear(); toast('Commit ' + r.sha + ' criado'); }
+  catch (x) { toast(x.message); }
+  A.busy = false; await loadAlteracoes(true);
+}
+async function altPush() {
+  const A = S.alt, n = A.dados?.naoEnviados.length || 0;
+  if (!(await confirmar({ titulo: `Enviar ${n} commit${n === 1 ? '' : 's'} ao GitHub?`, texto: 'Isso publica os commits no repositório remoto (git push). É uma ação de produção e fica registrada na auditoria.', ok: 'Enviar', perigo: true, icone: 'pi-upload' }))) return;
+  A.busy = true; renderAlteracoes();
+  try { const r = await api('/api/alteracoes/push', {}); toast(`${r.enviados} commit${r.enviados === 1 ? '' : 's'} enviado${r.enviados === 1 ? '' : 's'}`); }
+  catch (x) { toast(x.message); }
+  A.busy = false; await loadAlteracoes(true);
+}
+document.addEventListener('input', (e) => { if (e.target.dataset?.alt === 'msg') S.alt.msg = e.target.value; });
+setInterval(() => { if (!document.hidden && !S.alt.busy) loadAlteracoes(); }, 8000);
+
 document.addEventListener('change', async (e) => {
   const el = e.target.closest('[data-chg]'); if (!el) return;
   const d = el.dataset;
   try {
     switch (d.chg) {
+      case 'alt-sel': el.checked ? S.alt.sel.add(d.p) : S.alt.sel.delete(d.p); renderAlteracoes(); break;
+      case 'alt-conv': el.checked ? S.alt.fora.delete(d.id) : S.alt.fora.add(d.id); break;
+      case 'alt-addchat': if (el.value) { S.alt.extra.add(el.value); S.alt.fora.delete(el.value); renderAlteracoes(); } break;
       case 'size': S.size[d.key] = Number(el.value); S.page[d.key] = 1; render(); break;
       case 'fprio': S.f.prio = el.value; S.page.pend = 1; render(); break;
       case 'fstat': S.f.stat = el.value; S.page.pend = 1; render(); break;

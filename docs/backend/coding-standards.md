@@ -25,7 +25,7 @@ Cobre as convenções que o código segue, os testes e os comandos de validaçã
 
 | Comando | Uso |
 |---|---|
-| `npm test` | Roda `node --test politica.test.mjs catalogo.test.mjs projetos.test.mjs consumo.test.mjs fluxo.test.mjs padroes.test.mjs`. Os testes de projetos usam `TILO_DADOS_BASE` (pasta temporária) e não tocam em dados reais. |
+| `npm test` | Roda `node --test politica.test.mjs catalogo.test.mjs projetos.test.mjs consumo.test.mjs fluxo.test.mjs git.test.mjs padroes.test.mjs`. Os testes de projetos usam `TILO_DADOS_BASE` (pasta temporária) e não tocam em dados reais. |
 | `node --test politica.test.mjs` | Só os testes da política. |
 | `npm start` | Inicia o servidor. |
 | `npm run verificar` | Confere o ambiente (PowerShell). |

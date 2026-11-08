@@ -55,9 +55,12 @@ dialog.novo[open]{animation:pop .16s ease-out}@keyframes pop{from{opacity:0;tran
 .hint{margin:0;font-size:.72rem;color:var(--muted)}
 .err{margin:0;padding:9px 12px;border-radius:10px;background:#4b1d28;color:#ffb4c0;font-size:.78rem}
 .nf{display:flex;justify-content:flex-end;gap:10px;margin-top:4px}
-.b{height:38px;padding:0 16px;border-radius:10px;border:1px solid var(--line);background:#ffffff0d;color:var(--text);font:600 .8rem inherit;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+.b{height:38px;padding:0 16px;border-radius:6px;border:1px solid var(--line);background:#ffffff0d;color:var(--text);font-family:inherit;font-size:.875rem;font-weight:500;line-height:1;transition:.15s;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
 .b:hover{background:#ffffff1c}.b.primary{background:var(--sel);border-color:var(--sel)}.b.primary:hover{background:#6a5af0}.b:disabled{opacity:.5;pointer-events:none}
 .toast{position:fixed;left:50%;bottom:70px;transform:translateX(-50%) translateY(10px);background:#e9ebff;color:#14162b;padding:10px 18px;border-radius:99px;font-size:.8rem;font-weight:600;opacity:0;pointer-events:none;transition:.2s}
 .toast.on{opacity:1;transform:translateX(-50%)}
 @media (max-width:640px){.imgs{flex-direction:column}.top{padding:18px}.rail{padding:60px 40px;gap:20px}.tile{width:150px;height:150px}.hints{display:none}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.b .pi{font-size:.92em;opacity:.85}.b:hover .pi{opacity:1}
+.b:active:not(:disabled){transform:translateY(1px)}
+.b:focus-visible{outline:2px solid var(--sel);outline-offset:2px}

@@ -49,6 +49,8 @@ Cobre as rotas HTTP de `server.mjs`, o formato das respostas, os limites e os c�
 | `/api/biblioteca/rascunhos` | Lotes de rascunhos de generalização deste projeto. |
 | `/api/biblioteca/rascunho?lote=&item=&original=1` | Conteúdo de um rascunho (ou do original). |
 | `/api/permissoes` | Regras de fábrica, pacotes, comandos lembrados, bloqueios e itens de produção do projeto. |
+| `/api/alteracoes` | Git visual: branch, remoto, arquivos não commitados (cada um com as conversas que o editaram) e commits não enviados (com a conversa do trailer `Tilo-Chat`). `{ repo: false }` se a pasta não for git. Ver [../business/alteracoes.md](../business/alteracoes.md). |
+| `/api/alteracoes/diff?arquivo=` | Diff de um arquivo alterado. Recusa arquivos fora do status e segredos (`.env`, `.ssh`, `.pem`, `id_*`, `.token`); corta em 500.000 caracteres. |
 
 Restrições de `/api/file`: o primeiro segmento do caminho precisa estar em `pastasLegiveis` do projeto (padrão: `docs`, `planning`, `pendencias`, `apps`, `infra`); caminhos com `.env` são recusados (403); arquivo inexistente ou maior que 500.000 bytes responde 404.
 
@@ -60,7 +62,7 @@ Restrições de `/api/file`: o primeiro segmento do caminho precisa estar em `pa
 | `/api/remover` | `line`, `raw` | Apaga a linha da pendência no README, se o conteúdo ainda for o mesmo (senão 409). |
 | `/api/sessoes/meta` | `id`, `apelido`, `itemId`, `oculto` | Apelido (80), vínculo com pendência (12) e ocultar sessão do terminal. |
 | `/api/chat/novo` | `title`, `itemId`, `contexto`, `model`, `plan`, `modo` | Cria conversa; `modo` é `perguntar`, `editar` (padrão) ou `leitura`. |
-| `/api/chat/config` | `id`, `model`, `plan`, `modo`, `title`, `closed` | Altera a conversa. `modo`: `perguntar`, `editar`, `plan`, `auto` ou `leitura` (400 em conversa de documentação). Modo e modelo valem na hora, mesmo com a execução em andamento. `closed: true` encerra (mata o processo, nega pedidos pendentes e guarda no histórico, marcadas, as mensagens que o Claude não leu); `false` reabre. |
+| `/api/chat/config` | `id`, `model`, `tom`, `plan`, `modo`, `title`, `closed` | Altera a conversa. `tom`: `normal`, `lite`, `full` ou `ultra` (400 se inválido); vale no próximo processo do Claude. `/api/chat/novo` também aceita `tom`. `modo`: `perguntar`, `editar`, `plan`, `auto` ou `leitura` (400 em conversa de documentação). Modo e modelo valem na hora, mesmo com a execução em andamento. `closed: true` encerra (mata o processo, nega pedidos pendentes e guarda no histórico, marcadas, as mensagens que o Claude não leu); `false` reabre. |
 | `/api/chat/enviar` | `id`, `text`, `mid` | Envia mensagem (até 20.000 caracteres). **Aceita mesmo com o Claude trabalhando**: a mensagem vai para a fila do Claude Code e entra no histórico quando ele a lê. `mid` (uuid gerado pela tela) evita duplicar o mesmo envio. 409 se a conversa está encerrada ou se já há 20 mensagens na fila. Se o título ainda é "Nova conversa", vira o início da 1ª mensagem (até 60 caracteres). |
 | `/api/chat/cancelar` | `id` | Botão Parar: nega pedidos pendentes e interrompe o passo em curso (igual ao Esc do terminal); a conversa continua aceitando mensagens. Se o Claude não parar em 10 s, o processo é encerrado. Resposta: `resultado` = `interrompido`, `encerrado` ou `nada em execução`. |
 | `/api/chat/apagar` | `id` | Apaga a conversa. |
@@ -74,6 +76,8 @@ Restrições de `/api/file`: o primeiro segmento do caminho precisa estar em `pa
 | `/api/permissoes/regra` | `tipo`, `texto`, `motivo` | Acrescenta bloqueio (`tipo` ≠ `producao`) ou item de produção. |
 | `/api/permissoes/regra/remover` | `tipo`, `texto` | Remove a regra. |
 | `/api/permissoes/testar` | `tool`, `comando` | Simula a política sem executar. |
+| `/api/alteracoes/commit` | `arquivos`, `mensagem`, `chats` | Commita só os arquivos escolhidos (`git commit --only`) e acrescenta a linha `Tilo-Chat: <id>` por conversa existente. Recusa segredos e arquivos fora do status. Registra na auditoria. |
+| `/api/alteracoes/push` | (vazio) | Envia os commits ao remoto, sem forçar. Sem upstream, cria o vínculo com `origin`. Registra na auditoria como produção. |
 | `/api/documentacao/iniciar` | `modo` (`criar` ou `atualizar`), `modelo` | Inicia a conversa de documentação. |
 | `/api/biblioteca/publicar` | `arquivos` | Copia documentos de `docs/` para a biblioteca. |
 | `/api/biblioteca/remover` | `id` ou `colecao` | Remove um documento ou uma coleção. |

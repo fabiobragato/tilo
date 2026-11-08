@@ -21,6 +21,22 @@ Todo seletor do Tilo usa o mesmo menu: um botão (ícone opcional, valor atual e
 - **Aparência:** `.dd-btn` com altura 36 px (30 px em `sm`, 34 px na linha do Enviar), borda `#e3e8f1`, raio 10 px; lista com sombra e raio 14 px; opção escolhida com fundo `--primary-soft` e ícone em `--primary`. Variações de estado por classe no `.dd` (`modo-auto` âmbar, `modo-plan` azul, `modo-leitura` cinza).
 - **Guarda:** `padroes.test.mjs` reprova `<select>` sem `class="sel"` e confere que as páginas carregam `combo.js` antes do script próprio.
 
+## Rótulos de botões
+
+- O rótulo diz **o que o botão faz**, com verbo e objeto quando houver mais de uma ação por perto: "Abrir conversa", "Anexar documentos", "Remover regra", "Tirar da lista" (não "Abrir", "Anexar", "Remover" soltos). Botões só com ícone têm `title` e `aria-label`.
+- Quando o efeito não é óbvio (o que muda, o que não é apagado, se dá para desfazer), o botão ganha um `title` curto com essa explicação, no mesmo espírito da explicação por opção dos menus. Só afirme no `title` o que o código faz de fato.
+- **Aparência** (final de `assets/app.css`, estilo PrimeVue/Aura, mesmo conjunto dos ícones PrimeIcons): raio 6 px, fonte 14 px peso 500, altura 38 px (32 px em `sm`; a mesma nos menus). `.btn` é o secundário (fundo cinza-azulado `#f1f5f9`, sem borda, escurece no hover); `.btn.primary` é cheio na cor do projeto; `.btn.danger` é contornado em vermelho. Menus (`.dd-btn`) e atalhos (`.chipbtn`) têm fundo branco, borda `#cbd5e1` e sombra leve; foco em anel duplo (branco + cor do projeto). Variáveis `--p-*` no início do bloco. Na seleção, `.b` (`assets/inicio.css`) segue o peso e o raio.
+- Ações perigosas ou irreversíveis continuam pedindo confirmação em diálogo (`confirmar()`).
+
+## Dicas (tooltip) — `assets/tooltip.js` e `assets/tooltip.css`
+
+Toda dica do Tilo usa a mesma caixa: escura (`#1e293b`), cantos de 6 px, fonte 13 px, com seta apontando para o elemento, no estilo do tooltip do PrimeVue. Não use a dica nativa do navegador nem outro estilo.
+
+- **Como usar:** escreva `title="..."` no elemento, como sempre. Na primeira vez que o mouse ou o foco do teclado chega nele, o `tooltip.js` move o texto para `data-tip` (a dica nativa não aparece) e, se o elemento não tem texto nem `aria-label` (botão só com ícone), usa a dica como `aria-label`. Elementos criados depois funcionam sem nada a fazer.
+- **Comportamento:** aparece após 350 ms com o mouse (na hora com o foco do teclado), abaixo do elemento ou acima se não couber, sempre dentro da tela. Some ao sair, clicar, rolar a página ou apertar Esc. Dentro de `<dialog>` modal a caixa é criada dentro da janela, para não ficar atrás dela. Com `prefers-reduced-motion` não há animação.
+- **Texto:** uma ou duas frases, dizendo o efeito (o que muda e o que não é apagado), no mesmo espírito da explicação das opções dos menus.
+- **Guarda:** `padroes.test.mjs` confere que as duas páginas carregam `tooltip.js` e `tooltip.css`.
+
 ## Seleção (`assets/inicio.css`)
 
 - Fonte `"Segoe UI", system-ui, sans-serif`; fundo escuro em tela cheia; tiles dos projetos com cor própria (`--c`); formulário em `<dialog class="novo">`.

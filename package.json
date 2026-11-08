@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test politica.test.mjs catalogo.test.mjs projetos.test.mjs consumo.test.mjs fluxo.test.mjs padroes.test.mjs",
+    "test": "node --test politica.test.mjs catalogo.test.mjs projetos.test.mjs consumo.test.mjs fluxo.test.mjs git.test.mjs padroes.test.mjs",
     "verificar": "powershell -ExecutionPolicy Bypass -File scripts/verificar.ps1"
   },
   "keywords": [

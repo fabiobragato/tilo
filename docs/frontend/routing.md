@@ -23,6 +23,7 @@ Outros caminhos que não começam com `/api/`, `/assets/` ou `/logo/` respondem 
 | `#/chat` | Conversar com Claude. |
 | `#/documentacao` | Documentação do projeto: cobertura por área, explorador de arquivos (`docs/`, `planning/`, `pendencias/`) e geração com o Claude. `#/arquivos` (antiga tela "Docs e planejamentos") redireciona para cá. |
 | `#/biblioteca` | Biblioteca de documentos. |
+| `#/alteracoes` | Alterações (git visual): não commitado, não enviado e a conversa de cada mudança. |
 | `#/permissoes` | Permissões do Claude. |
 
 Parâmetros de consulta no hash:

@@ -15,8 +15,7 @@ Função `startJob` em `server.mjs` (estado da conversa em `fluxo.mjs`). **Uma c
 | `--settings` | `<tmp>/tilo-settings.json`, gerado na partida (ver abaixo). |
 | `--mcp-config` + `--strict-mcp-config` | `<tmp>/tilo-mcp-<chat>.json`, que declara o servidor MCP `tilo` (`aprovador-mcp.mjs`). |
 | `--permission-prompt-tool` | `mcp__tilo__approve`. |
-| `--append-system-prompt` | Texto fixo `SYSTEM` de `server.mjs`. |
-| `--plugin-dir` | Pasta do plugin Caveman já instalado no usuário (`caveman@caveman`, lida de `~/.claude/plugins/installed_plugins.json`); ver "Caveman" abaixo. Só entra se o plugin existir. |
+| `--append-system-prompt` | Texto fixo `SYSTEM` de `server.mjs` + a regra de tom da conversa (`instrucaoTom` em `tom.mjs`); ver "Tom das respostas" abaixo. |
 | `--add-dir` | Pastas de leitura extra (documentos de referência da biblioteca ou de origem da generalização). |
 | `--permission-mode plan` | Quando a conversa nasce/reabre em plan. Com o processo vivo, a troca é feita por `set_permission_mode` (e o modelo por `set_model`), sem reiniciar. |
 | `--model` | Id completo, escolhido pela chave da conversa em `MODEL_IDS` (`server.mjs`): `fable` = `claude-fable-5-1`, `opus` = `claude-opus-5-5`, `sonnet` = `claude-sonnet-5-5` (padrão), `haiku` = `claude-haiku-5-5`. A versão fica explícita; para atualizar, troque `MODEL_IDS` e `MODELOS` em `assets/app.js`. Cada resposta guarda `modeloId`, o modelo real informado pelo Claude no evento `init`, e a tela mostra essa versão. |
@@ -25,9 +24,15 @@ Função `startJob` em `server.mjs` (estado da conversa em `fluxo.mjs`). **Uma c
 - Diretório de trabalho: raiz do projeto; na generalização, a pasta de rascunhos do lote. Nenhum texto do usuário vai em argumentos (vai pelo stdin).
 - Ambiente: `ANTHROPIC_API_KEY` e `ANTHROPIC_AUTH_TOKEN` vazias.
 
-### Caveman (respostas curtas)
+### Tom das respostas
 
-Como `--setting-sources project` ignora os plugins do usuário, o servidor carrega o plugin Caveman já instalado só nas conversas do Tilo, com `--plugin-dir`, e define `CAVEMAN_DEFAULT_MODE` (padrão `lite`; ver `TILO_CAVEMAN_NIVEL` e `TILO_CAVEMAN` em [configuration.md](configuration.md)). O plugin injeta as regras de estilo ao iniciar cada processo (inclusive nos `--resume`); código, comandos, caminhos e avisos de segurança continuam completos. O servidor não instala nem altera o plugin. Efeitos a saber: os hooks do plugin são código de terceiros e rodam fora do aprovador de comandos; o plugin grava a marca `~/.claude/.caveman-active` (a barra de status do terminal lê esse arquivo). Se o plugin não está instalado, nada muda.
+Cada conversa tem um tom (`tom`: `normal`, `lite`, `full` ou `ultra`; menu "Tom" ao lado do modelo). As regras ficam em `tom.mjs`, **embutidas no projeto**: são adaptadas do plugin Caveman (MIT, © 2026 Julius Brussee; o aviso está no cabeçalho do arquivo) e entram no `--append-system-prompt` de cada processo do `claude`, inclusive nos `--resume`. Não há plugin, hooks de terceiros nem arquivos fora da pasta do Tilo, e o usuário não precisa instalar nada. O texto é argumento de linha de comando (shell no Windows), então não pode ter aspas duplas, `%`, quebra de linha nem seta unicode (o `padroes.test.mjs` confere).
+
+- `lite` (padrão): mantém frases completas, corta enrolação. `full`: fragmentos, sem artigos. `ultra`: abreviações e setas. `normal`: respostas completas; numa conversa que já tinha tom curto, a regra pede explicitamente para voltar ao tom explicativo (o histórico retomado pode conter a regra anterior). Em `normal` numa conversa nova, nada é acrescentado.
+- Código, comandos, caminhos e mensagens de erro continuam exatos; avisos de segurança, ações irreversíveis e passos em sequência saem em texto normal.
+- Vale a partir do próximo processo do `claude` (não muda o processo vivo). `TILO_CAVEMAN_NIVEL` define o tom das conversas novas; `TILO_CAVEMAN=off` fixa `normal` e esconde o menu ([configuration.md](configuration.md)).
+- Efeito medido pelo plugin de origem: em média 65% menos tokens de resposta (de 22% a 87%, conforme o tipo de pergunta). No Tilo ainda não há medida própria; um teste único com o `ultra` deu respostas com cerca de metade do tamanho do `normal`.
+
 
 ### Ciclo de vida e mensagens
 

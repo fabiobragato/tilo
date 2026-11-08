@@ -21,7 +21,7 @@ Cobre o que conferir antes de concluir uma alteração no código do Tilo.
 
 ## Verificação
 
-- [ ] `npm test` passa (`node --test politica.test.mjs catalogo.test.mjs projetos.test.mjs consumo.test.mjs fluxo.test.mjs padroes.test.mjs`).
+- [ ] `npm test` passa (`node --test politica.test.mjs catalogo.test.mjs projetos.test.mjs consumo.test.mjs fluxo.test.mjs git.test.mjs padroes.test.mjs`).
 - [ ] Mudança em `politica.mjs` ou `catalogo.mjs` tem teste correspondente.
 - [ ] `npm run verificar` (PowerShell) não aponta falhas no ambiente.
 - [ ] Servidor inicia com `npm start` e o painel abre sem erro.

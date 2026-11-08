@@ -38,3 +38,19 @@ test('modelos: o servidor e a tela listam os mesmos modelos', () => {
   assert.ok(noServidor.length >= 4);
   assert.deepEqual(chaves(tela), noServidor);
 });
+
+test('dicas: as duas páginas carregam tooltip.js e tooltip.css, e os arquivos existem', () => {
+  for (const html of ['index.html', 'inicio.html']) {
+    const t = ler(html);
+    assert.ok(t.includes('/assets/tooltip.js') && t.includes('/assets/tooltip.css'), `${html} deve carregar tooltip.js e tooltip.css`);
+  }
+  assert.ok(ler('assets/tooltip.js').includes('data-tip') && ler('assets/tooltip.css').includes('.tip'));
+});
+
+test('tom: o servidor e a tela listam os mesmos tons, e o texto é seguro para a linha de comando', async () => {
+  const { TONS, instrucaoTom } = await import('./tom.mjs');
+  const tela = ler('assets/app.js').match(/const TONS = \{([\s\S]*?)\n\};/)?.[1] || '';
+  assert.deepEqual([...tela.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]).sort(), [...TONS].sort());
+  // o texto vai como argumento do claude (shell no Windows): sem aspas duplas, %, quebra de linha nem seta unicode
+  for (const t of TONS) { const s = instrucaoTom(t); assert.ok(s.length > 40); assert.ok(!/["%\r\n→]/.test(s), `tom ${t}: caractere perigoso na linha de comando`); }
+});
