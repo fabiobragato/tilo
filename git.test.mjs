@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { estado, diff, commitar, enviar, lerStatus, lerLog, montarMensagem, ehSensivel, vincularArquivos, gitDisponivel } from './git.mjs';
+import { estado, diff, commitar, enviar, trocarBranch, criarBranch, nomeBranchValido, lerStatus, lerLog, montarMensagem, ehSensivel, vincularArquivos, gitDisponivel } from './git.mjs';
 
 const temGit = await gitDisponivel();
 const ID1 = '11111111-1111-4111-8111-111111111111';
@@ -105,4 +105,23 @@ test('commits não enviados, vínculo por trailer e push', { skip: !temGit }, as
 
 test('pasta que não é repositório', { skip: !temGit }, async () => {
   assert.deepEqual(await estado(tmp('vazio')), { repo: false });
+});
+
+test('listar, criar e trocar de branch (feature-*)', { skip: !temGit }, async () => {
+  const dir = repo();
+  assert.deepEqual((await estado(dir)).branches, ['main']);
+  assert.deepEqual(await criarBranch(dir, 'feature-login'), { ok: true, branch: 'feature-login' });
+  let e = await estado(dir);
+  assert.equal(e.branch, 'feature-login');
+  assert.deepEqual(e.branches, ['feature-login', 'main']);
+  await assert.rejects(criarBranch(dir, 'feature-login'), /já existe/);
+  for (const ruim of ['', '-x', 'a b', 'a..b', 'x.lock', 'a/', '--detach', 'a;rm']) await assert.rejects(criarBranch(dir, ruim), /inválido/, ruim);
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'mudou\n'); // alteração não commitada acompanha a troca quando não há conflito
+  assert.equal((await trocarBranch(dir, 'main')).mudou, true);
+  e = await estado(dir);
+  assert.equal(e.branch, 'main');
+  assert.deepEqual(e.arquivos.map((a) => a.caminho), ['a.txt']);
+  await assert.rejects(trocarBranch(dir, 'nao-existe'), /não existe/);
+  assert.equal((await trocarBranch(dir, 'main')).mudou, false);
+  assert.equal(await nomeBranchValido(dir, 'feature/ok-1.2'), 'feature/ok-1.2');
 });

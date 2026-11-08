@@ -81,7 +81,8 @@ export async function estado(pasta) {
       naoEnviados = lerLog((await git(raiz, ['log', 'HEAD', '--not', '--remotes', `--format=${FORMATO_LOG}`, '-n', '200'])).out);
     }
   }
-  return { repo: true, raiz, relativa: path.relative(raiz, pasta).split(path.sep).join('/'), branch, upstream: up, remotos, semRemoto, semUpstream, atras, arquivos, naoEnviados };
+  const branches = comCommit ? (await git(raiz, ['for-each-ref', '--sort=refname', '--format=%(refname:short)', 'refs/heads'])).out.split(/\r?\n/).filter(Boolean) : [];
+  return { repo: true, raiz, relativa: path.relative(raiz, pasta).split(path.sep).join('/'), branch, branches, upstream: up, remotos, semRemoto, semUpstream, atras, arquivos, naoEnviados };
 }
 
 // Diff de um arquivo alterado (só arquivos que realmente aparecem no status; segredos são recusados).
@@ -130,6 +131,35 @@ export async function commitar(pasta, caminhos, mensagem, chatIds = []) {
   await git(e.raiz, ['commit', '--only', '-F', '-', '--', ...escolhidos], { input: msg });
   const sha = (await git(e.raiz, ['rev-parse', '--short', 'HEAD'])).out.trim();
   return { ok: true, sha, arquivos: escolhidos.length };
+}
+
+// Nome de branch aceito: letras, números, . _ - / (ex.: feature-login, feature/login); sem "..", sem começar com "-", e válido para o git.
+export async function nomeBranchValido(raiz, nome) {
+  const n = String(nome || '').trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._\/-]{0,99}$/.test(n) || n.includes('..') || n.endsWith('/') || n.endsWith('.') || n.endsWith('.lock')) throw new Error('Nome de branch inválido. Use letras, números, ponto, hífen, sublinhado ou barra (ex.: feature-login).');
+  try { await git(raiz, ['check-ref-format', '--branch', n]); } catch { throw new Error('Nome de branch inválido para o git.'); }
+  return n;
+}
+
+// Troca para uma branch local existente. O git recusa se houver alterações que conflitam; as demais acompanham você.
+export async function trocarBranch(pasta, nome) {
+  const e = await estado(pasta);
+  if (!e.repo) throw new Error('Esta pasta não é um repositório git.');
+  if (!e.branches.includes(String(nome))) throw new Error('Essa branch não existe neste repositório.');
+  if (nome === e.branch) return { ok: true, branch: nome, mudou: false };
+  await git(e.raiz, ['switch', '--', String(nome)]);
+  return { ok: true, branch: nome, mudou: true };
+}
+
+// Cria uma branch nova a partir do ponto atual e já troca para ela. Alterações não commitadas vão junto.
+export async function criarBranch(pasta, nome) {
+  const e = await estado(pasta);
+  if (!e.repo) throw new Error('Esta pasta não é um repositório git.');
+  if (!e.branches.length) throw new Error('Faça o primeiro commit antes de criar branches.');
+  const n = await nomeBranchValido(e.raiz, nome);
+  if (e.branches.includes(n)) throw new Error(`A branch “${n}” já existe.`);
+  await git(e.raiz, ['switch', '-c', n]);
+  return { ok: true, branch: n };
 }
 
 // Envia ao GitHub (sem --force). Sem upstream, cria o vínculo com `origin`.

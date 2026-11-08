@@ -991,6 +991,16 @@ async function core(req, res, url) {
           return send(res, 200, r);
         } catch (err) { return send(res, 400, { erro: err.message }); }
       }
+      case '/api/alteracoes/branch': { // troca ou cria branch; não com o Claude trabalhando (os arquivos mudariam debaixo dele)
+        if ([...jobs.values()].some((j) => !j.done && j.proj.id === P().id)) return send(res, 409, { erro: 'O Claude está trabalhando neste projeto. Espere terminar (ou pare a conversa) antes de trocar de branch.' });
+        const criar = body.acao === 'criar';
+        if (!criar && body.acao !== 'trocar') return send(res, 400, { erro: 'ação inválida' });
+        try {
+          const r = criar ? await gitx.criarBranch(P().ROOT, str(body.nome, 100)) : await gitx.trocarBranch(P().ROOT, str(body.nome, 100));
+          audit(P(), { chat: '-', tool: 'git', resumo: `${criar ? 'criou e trocou para' : 'trocou para'} a branch ${r.branch}`, risco: 'normal', decisao: 'liberado', quem: 'dono', motivo: 'seletor de branch da aba Alterações' });
+          return send(res, 200, r);
+        } catch (err) { return send(res, 400, { erro: err.message }); }
+      }
       case '/api/alteracoes/push': { // envia os commits ao GitHub (nunca com --force); é ação de produção, a UI confirma antes
         try {
           const r = await gitx.enviar(P().ROOT);

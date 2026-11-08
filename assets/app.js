@@ -162,11 +162,11 @@ function pager(key, pg, sizes = [6, 10, 20, 50]) {
 const NAV = [
   ['visao', 'Visão geral', 'pi-th-large'],
   ['pendencias', 'Pendências', 'pi-list-check'],
-  ['sessoes', 'Sessões', 'pi-history'],
   ['chat', 'Conversar com Claude', 'pi-sparkles'],
+  ['alteracoes', 'Alterações', 'pi-sitemap'],
+  ['sessoes', 'Sessões', 'pi-history'],
   ['documentacao', 'Documentação', 'pi-book'],
   ['biblioteca', 'Biblioteca de documentos', 'pi-bookmark'],
-  ['alteracoes', 'Alterações', 'pi-sitemap'],
   ['permissoes', 'Permissões do Claude', 'pi-shield'],
 ];
 function navCount(id) {
@@ -667,6 +667,7 @@ document.addEventListener('click', async (e) => {
       case 'alt-diff': await altDiff(d.p); break;
       case 'alt-commit': await altCommit(); break;
       case 'alt-push': await altPush(); break;
+      case 'alt-nova-branch': await altNovaBranch(); break;
       case 'alt-recarregar': await loadAlteracoes(true); toast('Atualizado'); break;
       case 'page': S.page[d.key] = Number(d.p); render(); window.scrollTo({ top: 0 }); break;
       case 'sec': S.f.sec = Number(d.n); S.page.pend = 1; render(); break;
@@ -1059,7 +1060,10 @@ function renderAlteracoes() {
       <span class="alt-conv">${c.conversas.length ? c.conversas.map(altChip).join('') : '<span class="muted small" title="Este commit não tem a linha Tilo-Chat (foi feito fora do Tilo ou antes deste recurso)">sem conversa vinculada</span>'}</span></div></li>`).join('');
   const aviso = g.semRemoto ? 'Este repositório não tem um remoto (GitHub) configurado.' : g.atras ? `O GitHub tem ${g.atras} commit${g.atras === 1 ? '' : 's'} que você ainda não baixou.` : g.semUpstream ? 'Esta branch ainda não existe no GitHub; o envio vai criá-la.' : '';
   root.innerHTML = `${cab('O que mudou no projeto e ainda não está no GitHub — e de qual conversa veio cada mudança.')}
-    <div class="alt-top">${badge(g.branch || 'sem branch', 'primary', 'pi-sitemap')}${remoto}${g.relativa ? `<span class="muted small">pasta do projeto: ${esc(g.relativa)}</span>` : ''}
+    <div class="alt-top">${g.branches.length ? `<label class="alt-branch" title="Branch atual. Escolha outra para trocar; as alterações não commitadas acompanham você, se não houver conflito."><i class="pi pi-sitemap"></i>
+        <select class="sel sm" data-chg="alt-branch" aria-label="Branch atual" ${A.busy ? 'disabled' : ''}>${g.branches.map((b) => `<option value="${esc(b)}" ${b === g.branch ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select></label>
+        <button class="btn sm" data-act="alt-nova-branch" title="Cria uma branch nova a partir daqui (ex.: feature-login) e já troca para ela" ${A.busy ? 'disabled' : ''}><i class="pi pi-plus"></i> Nova branch</button>`
+      : badge(g.branch || 'sem branch', 'primary', 'pi-sitemap')}${remoto}${g.relativa ? `<span class="muted small">pasta do projeto: ${esc(g.relativa)}</span>` : ''}
       <button class="btn sm" data-act="alt-recarregar" title="Lê o estado do git de novo"><i class="pi pi-refresh"></i> Atualizar</button></div>
     <div class="card"><div class="card-head"><span class="ico"><i class="pi pi-pencil"></i></span><h3>Ainda não commitado</h3><span class="muted small">${g.arquivos.length}</span></div><div class="card-body">
       ${g.arquivos.length ? `<p class="muted small">Marque os arquivos que entram no próximo commit. “Sem conversa vinculada” quer dizer que nenhuma conversa do Tilo editou o arquivo diretamente (mudanças feitas por comando ou fora do Tilo não são atribuídas).</p><ul class="alt-list">${arqs}</ul>${form}` : '<div class="muted small">Nada para commitar: tudo o que foi alterado já está num commit.</div>'}</div></div>
@@ -1086,6 +1090,17 @@ async function altCommit() {
   catch (x) { toast(x.message); }
   A.busy = false; await loadAlteracoes(true);
 }
+async function altBranch(acao, nome) {
+  const A = S.alt;
+  A.busy = true; renderAlteracoes();
+  try { const r = await api('/api/alteracoes/branch', { acao, nome }); toast(acao === 'criar' ? `Branch ${r.branch} criada` : r.mudou ? `Agora em ${r.branch}` : 'Já está nesta branch'); }
+  catch (x) { toast(x.message); }
+  A.busy = false; await loadAlteracoes(true);
+}
+async function altNovaBranch() {
+  const nome = await pedirTexto({ titulo: 'Nova branch', rotulo: 'Nome da branch (a partir da atual)', valor: 'feature-', ok: 'Criar e trocar' });
+  if (nome?.trim()) await altBranch('criar', nome.trim());
+}
 async function altPush() {
   const A = S.alt, n = A.dados?.naoEnviados.length || 0;
   if (!(await confirmar({ titulo: `Enviar ${n} commit${n === 1 ? '' : 's'} ao GitHub?`, texto: 'Isso publica os commits no repositório remoto (git push). É uma ação de produção e fica registrada na auditoria.', ok: 'Enviar', perigo: true, icone: 'pi-upload' }))) return;
@@ -1102,6 +1117,7 @@ document.addEventListener('change', async (e) => {
   const d = el.dataset;
   try {
     switch (d.chg) {
+      case 'alt-branch': if (el.value !== S.alt.dados?.branch) await altBranch('trocar', el.value); break;
       case 'alt-sel': el.checked ? S.alt.sel.add(d.p) : S.alt.sel.delete(d.p); renderAlteracoes(); break;
       case 'alt-conv': el.checked ? S.alt.fora.delete(d.id) : S.alt.fora.add(d.id); break;
       case 'alt-addchat': if (el.value) { S.alt.extra.add(el.value); S.alt.fora.delete(el.value); renderAlteracoes(); } break;

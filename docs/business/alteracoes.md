@@ -5,6 +5,7 @@ A aba **Alterações** (`#/alteracoes`) mostra o repositório git do projeto: o 
 ## O que aparece
 
 - **Cabeçalho:** branch atual e remoto (`origin/main`, "branch ainda não enviada" ou "sem GitHub configurado").
+- **Branch:** menu com as branches locais para trocar, e botão **Nova branch** (sugere o prefixo `feature-`; cria a partir da branch atual e já troca). Alterações não commitadas acompanham a troca; se conflitarem, o git recusa e o aviso aparece. Não dá para trocar enquanto o Claude trabalha no projeto (os arquivos mudariam debaixo dele). Branches só remotas não aparecem na lista.
 - **Ainda não commitado:** arquivos modificados, novos, apagados ou renomeados, cada um com as conversas que o editaram. "Ver mudanças" abre o diff do arquivo.
 - **Commitado, mas não enviado:** commits que o GitHub ainda não tem, cada um com a conversa ligada. Sem upstream, vale todo commit que nenhum remoto tem.
 - A tela se atualiza sozinha a cada 8 segundos; o contador no menu soma arquivos não commitados e commits não enviados.
