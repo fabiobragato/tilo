@@ -9,6 +9,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { avaliar, avaliarArquivo, compilar, descrever, descreverFabrica, FERRAMENTAS_ARQUIVO, listarPacotes, validarConfig } from './politica.mjs';
+import { mensagemSegura, redigir, registrarErro } from './erros.mjs';
 import * as projetos from './projetos.mjs';
 import * as catalogo from './catalogo.mjs';
 import { consumoRecente, pastaDeTranscripts, usoDoArquivo } from './consumo.mjs';
@@ -233,7 +234,7 @@ function audit(proj, o) { // dados/<projeto>/auditoria.jsonl
     try { if (fs.statSync(proj.AUDIT).size > AUDIT_MAX) fs.renameSync(proj.AUDIT, proj.AUDIT.replace(/\.jsonl$/, `-${new Date().toISOString().replace(/[:.]/g, '-')}.jsonl`)); } catch (e) { if (e.code !== 'ENOENT') throw e; }
     fs.appendFileSync(proj.AUDIT, JSON.stringify({ ts: new Date().toISOString(), ...o }) + '\n');
   } catch (e) {
-    if (!auditAvisado.has(proj.id)) { auditAvisado.add(proj.id); console.error(`[tilo] AVISO: não foi possível gravar a auditoria de "${proj.id}" (${e.message}). A ação seguiu sem registro.`); }
+    if (!auditAvisado.has(proj.id)) { auditAvisado.add(proj.id); console.error(`[tilo] AVISO: não foi possível gravar a auditoria de "${proj.id}" (${redigir(e.message)}). A ação seguiu sem registro.`); }
   }
 }
 const autoSessao = new Set(); // chats em modo "automático" (só em memória; some ao reiniciar o servidor). Produção e política 'negar' nunca entram.
@@ -445,7 +446,7 @@ function startJob(chat, text, { mid = crypto.randomUUID(), persistido = true } =
     }
     salvarPerdidas(proj, chat.id, perdidas);
   });
-  child.on('error', (e) => finish(1, `erro ao iniciar claude: ${e.message}`));
+  child.on('error', (e) => { registrarErro(e, 'claude'); finish(1, 'erro ao iniciar o claude (verifique se ele está instalado e no PATH)'); });
   child.on('close', (code) => finish(code));
 }
 
@@ -585,8 +586,8 @@ async function core(req, res, url) {
           });
           return send(res, 200, { lotes });
         }
-        case '/api/biblioteca/rascunho': { try { return send(res, 200, catalogo.lerRascunho(url.searchParams.get('lote') || '', url.searchParams.get('item') || '', { original: url.searchParams.get('original') === '1' })); } catch (e) { return send(res, 404, { erro: e.message }); } }
-        case '/api/biblioteca/doc': { try { return send(res, 200, catalogo.lerDoc(url.searchParams.get('id') || '')); } catch (e) { return send(res, 404, { erro: e.message }); } }
+        case '/api/biblioteca/rascunho': { try { return send(res, 200, catalogo.lerRascunho(url.searchParams.get('lote') || '', url.searchParams.get('item') || '', { original: url.searchParams.get('original') === '1' })); } catch (e) { return send(res, 404, { erro: mensagemSegura(e) }); } }
+        case '/api/biblioteca/doc': { try { return send(res, 200, catalogo.lerDoc(url.searchParams.get('id') || '')); } catch (e) { return send(res, 404, { erro: mensagemSegura(e) }); } }
         case '/api/permissoes': {
           const c = cfgSegura(P().politica);
           return send(res, 200, {
@@ -608,7 +609,7 @@ async function core(req, res, url) {
               arquivos: gitx.vincularArquivos(e.arquivos, chats, e.raiz, FERRAMENTAS_EDICAO, desde).map((a) => ({ ...a, sensivel: gitx.ehSensivel(a.caminho) })),
               naoEnviados: e.naoEnviados.map((c) => ({ ...c, conversas: c.chats.map((id) => ({ id, titulo: titulos.get(id) || null })) })),
             });
-          } catch (err) { return send(res, 500, { erro: err.message }); }
+          } catch (err) { return send(res, 500, { erro: mensagemSegura(err) }); }
         }
         case '/api/alteracoes/historico': { // commits da branch atual, em páginas; cada um com a conversa do trailer Tilo-Chat e se já foi enviado
           try {
@@ -616,19 +617,19 @@ async function core(req, res, url) {
             if (!h.repo) return send(res, 200, h);
             const titulos = new Map(Object.values(loadChats().chats).filter((c) => !c.gen).map((c) => [c.id, c.title || 'Conversa']));
             return send(res, 200, { ...h, commits: h.commits.map((c) => ({ ...c, conversas: c.chats.map((id) => ({ id, titulo: titulos.get(id) || null })) })) });
-          } catch (err) { return send(res, 500, { erro: err.message }); }
+          } catch (err) { return send(res, 500, { erro: mensagemSegura(err) }); }
         }
         case '/api/alteracoes/commit-arquivos': {
           try { return send(res, 200, await gitx.arquivosDoCommit(P().ROOT, url.searchParams.get('sha') || '')); }
-          catch (err) { return send(res, 400, { erro: err.message }); }
+          catch (err) { return send(res, 400, { erro: mensagemSegura(err) }); }
         }
         case '/api/alteracoes/commit-diff': {
           try { return send(res, 200, await gitx.diffDoCommit(P().ROOT, url.searchParams.get('sha') || '', url.searchParams.get('arquivo') || '')); }
-          catch (err) { return send(res, 400, { erro: err.message }); }
+          catch (err) { return send(res, 400, { erro: mensagemSegura(err) }); }
         }
         case '/api/alteracoes/diff': {
           try { return send(res, 200, await gitx.diff(P().ROOT, url.searchParams.get('arquivo') || '')); }
-          catch (err) { return send(res, 400, { erro: err.message }); }
+          catch (err) { return send(res, 400, { erro: mensagemSegura(err) }); }
         }
         case '/api/pendencias': return send(res, 200, { sections: parse(), state: readJson(P().STATE, { items: {} }) });
         case '/api/versao': {
@@ -682,29 +683,29 @@ async function core(req, res, url) {
     switch (url.pathname) {
       case '/api/projetos': { // cadastrar projeto (opcionalmente cria a estrutura base do padrão de documentação, sem sobrescrever nada)
         try { const r = projetos.adicionar({ nome: body.nome, raiz: body.raiz, cor: body.cor, descricao: body.descricao, estruturaBase: body.estruturaBase === true, icone: body.icone, logo: body.logo }); return send(res, 200, r); }
-        catch (e) { return send(res, 400, { erro: e.message }); }
+        catch (e) { return send(res, 400, { erro: mensagemSegura(e) }); }
       }
       case '/api/projetos/remover': { // só tira da lista; pasta do projeto e dados/ ficam intactos
         try { return send(res, 200, projetos.remover(String(body.id || ''))); }
-        catch (e) { return send(res, 400, { erro: e.message }); }
+        catch (e) { return send(res, 400, { erro: mensagemSegura(e) }); }
       }
       case '/api/projetos/editar': {
         try { return send(res, 200, projetos.editar({ id: String(body.id || ''), nome: body.nome, cor: body.cor, descricao: body.descricao, icone: body.icone, logo: body.logo, removerIcone: body.removerIcone === true, removerLogo: body.removerLogo === true })); }
-        catch (e) { return send(res, 400, { erro: e.message }); }
+        catch (e) { return send(res, 400, { erro: mensagemSegura(e) }); }
       }
       case '/api/biblioteca/publicar': { // copia documentos técnicos deste projeto para a biblioteca (coleção = este projeto)
         try {
           const r = catalogo.publicar({ raizProjeto: P().ROOT, colecao: P().id, nome: P().nome, arquivos: body.arquivos });
           audit(P(), { chat: '-', tool: 'biblioteca', resumo: `publicou ${r.publicados} documento(s)`, risco: 'normal', decisao: 'publicado', quem: 'dono', motivo: 'documentos copiados para a biblioteca' });
           return send(res, 200, r);
-        } catch (e) { return send(res, 400, { erro: e.message }); }
+        } catch (e) { return send(res, 400, { erro: mensagemSegura(e) }); }
       }
       case '/api/biblioteca/remover': {
         try {
           if (body.id) catalogo.removerDoc(String(body.id)); else catalogo.removerColecao(String(body.colecao || ''));
           audit(P(), { chat: '-', tool: 'biblioteca', resumo: String(body.id || body.colecao), risco: 'normal', decisao: 'removido', quem: 'dono', motivo: 'removido da biblioteca' });
           return send(res, 200, { ok: true });
-        } catch (e) { return send(res, 400, { erro: e.message }); }
+        } catch (e) { return send(res, 400, { erro: mensagemSegura(e) }); }
       }
       case '/api/biblioteca/generalizar': { // o Claude reescreve os documentos sem o que é do produto; o dono revisa os rascunhos antes de entrarem na biblioteca
         const idsLib = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(String))], arqs = [...new Set((Array.isArray(body.arquivos) ? body.arquivos : []).map(String))];
@@ -739,11 +740,11 @@ async function core(req, res, url) {
           const r = catalogo.aceitarRascunhos(String(body.lote || ''), body.itens === 'todos' ? 'todos' : (Array.isArray(body.itens) ? body.itens.map(String) : []), { nomeColecao: P().nome });
           audit(P(), { chat: '-', tool: 'biblioteca', resumo: `aceitou ${r.aceitos.length} rascunho(s) generalizado(s)`, risco: 'normal', decisao: 'publicado', quem: 'dono', motivo: r.aceitos.join(', ').slice(0, 400) });
           return send(res, 200, r);
-        } catch (e) { return send(res, 400, { erro: e.message }); }
+        } catch (e) { return send(res, 400, { erro: mensagemSegura(e) }); }
       }
       case '/api/biblioteca/rascunho/descartar': {
         try { return send(res, 200, catalogo.descartarRascunhos(String(body.lote || ''), body.itens === 'todos' ? 'todos' : (Array.isArray(body.itens) ? body.itens.map(String) : []))); }
-        catch (e) { return send(res, 400, { erro: e.message }); }
+        catch (e) { return send(res, 400, { erro: mensagemSegura(e) }); }
       }
       case '/api/biblioteca/anexar': { // biblioteca -> este projeto: copiar como está, ou o Claude adapta ao código
         const ids = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(String))].slice(0, 40);
@@ -754,7 +755,7 @@ async function core(req, res, url) {
             const r = catalogo.copiarParaProjeto({ raiz: P().ROOT, ids });
             audit(P(), { chat: '-', tool: 'biblioteca', resumo: `copiou ${r.criados.length + r.renomeados.length} documento(s) para docs/`, risco: 'normal', decisao: 'anexado', quem: 'dono', motivo: [...r.criados, ...r.renomeados.map((x) => x.para)].join(', ').slice(0, 400) });
             return send(res, 200, r);
-          } catch (e) { return send(res, 400, { erro: e.message }); }
+          } catch (e) { return send(res, 400, { erro: mensagemSegura(e) }); }
         }
         if (Object.values(loadChats().chats).some((c) => c.doc && jobs.get(c.id) && !jobs.get(c.id).done)) return send(res, 409, { erro: 'já existe uma documentação em andamento neste projeto' });
         const modelo = MODELS.includes(body.modelo) ? body.modelo : DEFAULT_MODEL;
@@ -783,29 +784,29 @@ async function core(req, res, url) {
       }
       case '/api/permissoes/pacote': { // liga/desliga um pacote opcional (testes, build)
         try { atualizarPoliticaDoProjeto((c) => { const id = String(body.id); c.pacotes = c.pacotes.filter((x) => x !== id); if (body.ligado === true) c.pacotes.push(id); }); return send(res, 200, { ok: true }); }
-        catch (e) { return send(res, 400, { erro: e.message }); }
+        catch (e) { return send(res, 400, { erro: mensagemSegura(e) }); }
       }
       case '/api/permissoes/lembrar': { // só comandos comuns: produção e bloqueados nunca viram permissão permanente
         const comando = str(body.comando, 4001).trim();
         const v = avaliar('Bash', { command: comando }, compilar(P().politica));
         if (comando.length > 4000 || v.acao === 'negar' || v.risco === 'producao') return send(res, 400, { erro: v.acao === 'negar' ? `Este comando é bloqueado (${v.motivo}).` : 'Comandos de produção sempre pedem aprovação; não dá para lembrá-los.' });
         try { atualizarPoliticaDoProjeto((c) => { if (!c.lembrados.some((l) => l.comando === comando)) c.lembrados.push({ comando, quando: new Date().toISOString() }); }); audit(P(), { chat: '-', tool: 'Bash', resumo: comando, risco: 'normal', decisao: 'lembrado', quem: 'dono', motivo: 'permissão permanente do projeto' }); return send(res, 200, { ok: true }); }
-        catch (e) { return send(res, 400, { erro: e.message }); }
+        catch (e) { return send(res, 400, { erro: mensagemSegura(e) }); }
       }
       case '/api/permissoes/esquecer': {
         const comando = str(body.comando, 4001).trim();
         try { atualizarPoliticaDoProjeto((c) => { c.lembrados = c.lembrados.filter((l) => l.comando !== comando); }); audit(P(), { chat: '-', tool: 'Bash', resumo: comando, risco: 'normal', decisao: 'revogado', quem: 'dono', motivo: 'permissão permanente removida' }); return send(res, 200, { ok: true }); }
-        catch (e) { return send(res, 400, { erro: e.message }); }
+        catch (e) { return send(res, 400, { erro: mensagemSegura(e) }); }
       }
       case '/api/permissoes/regra': { // bloqueio ou cuidado extra por texto
         const tipo = body.tipo === 'producao' ? 'producao' : 'bloqueios';
         try { atualizarPoliticaDoProjeto((c) => { c[tipo].push({ texto: str(body.texto, 200), motivo: str(body.motivo, 200) }); }); return send(res, 200, { ok: true }); }
-        catch (e) { return send(res, 400, { erro: e.message }); }
+        catch (e) { return send(res, 400, { erro: mensagemSegura(e) }); }
       }
       case '/api/permissoes/regra/remover': {
         const tipo = body.tipo === 'producao' ? 'producao' : 'bloqueios';
         try { atualizarPoliticaDoProjeto((c) => { c[tipo] = c[tipo].filter((r) => r.texto !== String(body.texto)); }); return send(res, 200, { ok: true }); }
-        catch (e) { return send(res, 400, { erro: e.message }); }
+        catch (e) { return send(res, 400, { erro: mensagemSegura(e) }); }
       }
       case '/api/permissoes/testar': { // simula um comando contra as permissões (não executa nada)
         const tool = body.tool === 'PowerShell' ? 'PowerShell' : 'Bash', comando = str(body.comando, 4000);
@@ -1016,7 +1017,7 @@ async function core(req, res, url) {
           const r = await gitx.commitar(P().ROOT, arquivos, str(body.mensagem, 4000), chats);
           audit(P(), { chat: chats[0] || '-', tool: 'git', resumo: `commit ${r.sha} (${r.arquivos} arquivo(s))`, risco: 'normal', decisao: 'liberado', quem: 'dono', motivo: 'botão Commitar da aba Alterações' });
           return send(res, 200, r);
-        } catch (err) { return send(res, 400, { erro: err.message }); }
+        } catch (err) { return send(res, 400, { erro: mensagemSegura(err) }); }
       }
       case '/api/alteracoes/branch': { // troca ou cria branch; não com o Claude trabalhando (os arquivos mudariam debaixo dele)
         if ([...jobs.values()].some((j) => !j.done && j.proj.id === P().id)) return send(res, 409, { erro: 'O Claude está trabalhando neste projeto. Espere terminar (ou pare a conversa) antes de trocar de branch.' });
@@ -1026,7 +1027,7 @@ async function core(req, res, url) {
           const r = criar ? await gitx.criarBranch(P().ROOT, str(body.nome, 100), str(body.base, 200)) : await gitx.trocarBranch(P().ROOT, str(body.nome, 100));
           audit(P(), { chat: '-', tool: 'git', resumo: `${criar ? 'criou e trocou para' : 'trocou para'} a branch ${r.branch}`, risco: 'normal', decisao: 'liberado', quem: 'dono', motivo: 'seletor de branch da aba Alterações' });
           return send(res, 200, r);
-        } catch (err) { return send(res, 400, { erro: err.message }); }
+        } catch (err) { return send(res, 400, { erro: mensagemSegura(err) }); }
       }
       case '/api/alteracoes/pull': { // baixa e junta uma branch remota na branch atual; não com o Claude trabalhando (os arquivos mudariam debaixo dele)
         if ([...jobs.values()].some((j) => !j.done && j.proj.id === P().id)) return send(res, 409, { erro: 'O Claude está trabalhando neste projeto. Espere terminar (ou pare a conversa) antes de dar pull.' });
@@ -1035,8 +1036,8 @@ async function core(req, res, url) {
           audit(P(), { chat: '-', tool: 'git', resumo: `pull de ${r.remota} (${r.commits} commit(s))`, risco: 'normal', decisao: 'liberado', quem: 'dono', motivo: 'botão Pull do chat' });
           return send(res, 200, r);
         } catch (err) {
-          audit(P(), { chat: '-', tool: 'git', resumo: 'pull falhou', risco: 'normal', decisao: 'erro', quem: 'dono', motivo: String(err.message).slice(0, 300) });
-          return send(res, 400, { erro: err.message });
+          audit(P(), { chat: '-', tool: 'git', resumo: 'pull falhou', risco: 'normal', decisao: 'erro', quem: 'dono', motivo: redigir(err.message) });
+          return send(res, 400, { erro: mensagemSegura(err) });
         }
       }
       case '/api/alteracoes/push': { // envia os commits ao GitHub (nunca com --force); é ação de produção, a UI confirma antes
@@ -1045,8 +1046,8 @@ async function core(req, res, url) {
           audit(P(), { chat: '-', tool: 'git', resumo: `push de ${r.enviados} commit(s)`, risco: 'producao', decisao: 'liberado', quem: 'dono', motivo: 'botão Enviar da aba Alterações' });
           return send(res, 200, r);
         } catch (err) {
-          audit(P(), { chat: '-', tool: 'git', resumo: 'push falhou', risco: 'producao', decisao: 'erro', quem: 'dono', motivo: String(err.message).slice(0, 300) });
-          return send(res, 400, { erro: err.message });
+          audit(P(), { chat: '-', tool: 'git', resumo: 'push falhou', risco: 'producao', decisao: 'erro', quem: 'dono', motivo: redigir(err.message) });
+          return send(res, 400, { erro: mensagemSegura(err) });
         }
       }
       case '/api/reiniciar': { // reinicia o próprio servidor: responde, encerra conversas em andamento e sobe um processo novo
@@ -1071,7 +1072,7 @@ async function core(req, res, url) {
       default: return send(res, 404, { erro: 'não encontrado' });
     }
   } catch (e) {
-    if (!res.headersSent) send(res, 500, { erro: String(e.message || e) });
+    if (!res.headersSent) send(res, 500, { erro: mensagemSegura(e) });
     else res.end();
   }
 }

@@ -17,3 +17,14 @@ Não há containers, banco de dados, contas de usuário nem implantação em ser
 Não existe documento de endurecimento de containers porque o projeto não usa containers.
 
 Aprovação de comandos: [../business/aprovacao-de-comandos.md](../business/aprovacao-de-comandos.md) e [../backend/command-policy.md](../backend/command-policy.md).
+
+## Erros nas respostas HTTP
+
+Regras (CodeQL `js/stack-trace-exposure`), implementadas em `erros.mjs` e testadas em `erros.test.mjs`:
+
+- Nenhuma resposta HTTP devolve `e.message`, `e.stack` ou o texto cru de uma exceção. Toda rota passa por `mensagemSegura(e)`.
+- Erro esperado (`Error` simples, em português, de validação ou regra de negócio, sem `code` de sistema) segue para a interface, com stack, caminhos locais, URLs com credencial e tokens removidos (`redigir`).
+- Erro inesperado (`TypeError`, `SyntaxError`, erros de `fs`/rede com `code`, valores que não são `Error`) vira `Erro interno do Tilo. Detalhes foram registrados no log local.` (HTTP 500 ou o código que a rota já usava). O detalhe vai só para o log local (`registrarErro`), também redigido.
+- A auditoria (`motivo` de falhas de git pull/push) e os avisos de log passam por `redigir`.
+- Códigos HTTP, formato JSON `{ erro }`, autenticação e aprovação de comandos não mudaram.
+- Ao criar rota nova, use `mensagemSegura(e)` no `catch`; o `erros.test.mjs` reprova `erro: e.message` direto.
