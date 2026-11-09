@@ -10,7 +10,20 @@
 
 Roda só no seu computador (`127.0.0.1`), usa a **sua assinatura** do Claude Code (nunca uma API paga) e não tem dependências: só Node.js.
 
+> **Tilo: Project Knowledge** — central de conhecimento local para desenvolvimento assistido por IA.
+>
+> **Grátis** para uso pessoal, educacional e profissionais autônomos elegíveis. **Licença comercial** para uso empresarial. Confira a [licença](LICENSE), a [permissão para autônomos](FREELANCER-PERMISSION.md) e o [resumo comercial](COMMERCIAL-LICENSE.md): a PolyForm também libera certos usos institucionais (ensino, pesquisa, sem fins lucrativos, governo).
+
 ![Tela de seleção de projetos](docs/img/01-selecao.png)
+
+## Como utilizar o Tilo
+
+1. **Instale** (grátis, local, só Node.js): siga a [Instalação](#instalação).
+2. **Licença gratuita (Community):** uso pessoal, estudo, pesquisa, organizações elegíveis nos termos da [PolyForm Noncommercial 1.0.0](LICENSE) e [freelancers autônomos](FREELANCER-PERMISSION.md), inclusive em projetos remunerados.
+3. **Licença empresarial (Business):** empresas, agências, equipes e profissionais alocados por empresa. A partir de **R$ 49/mês** (Individual) ou **R$ 199/mês** (Team, até 5 usuários). Planos e links de pagamento em [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md).
+4. **Patrocínio:** apoio voluntário pelo [Buy Me a Coffee](https://buymeacoffee.com/fabiobragato). Ajuda o projeto, mas **não concede licença comercial**.
+
+Em dúvida se o seu caso é comercial? Veja a seção [Licença](#licença).
 
 ## Destaques
 
@@ -20,6 +33,7 @@ Roda só no seu computador (`127.0.0.1`), usa a **sua assinatura** do Claude Cod
 - **Git sem sair da conversa.** No topo do chat: **trocar de branch, criar branch, commitar arquivos escolhidos, push e pull**, tudo no mesmo lugar, e cada commit fica ligado à conversa que o originou.
 
 ## Sumário
+- [Como utilizar o Tilo](#como-utilizar-o-tilo)
 - [Destaques](#destaques)
 - [Para que serve](#para-que-serve)
 - [O que ele facilita](#o-que-ele-facilita)

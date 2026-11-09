@@ -17,5 +17,5 @@ Antes de implementar qualquer coisa, leia a documentação relevante em `docs/`.
 1. Identifique os documentos relacionados em `docs/`.
 2. Entenda a estrutura existente.
 3. Implemente apenas o escopo solicitado.
-4. Valide com os comandos do projeto: `npm test` (`node --test politica.test.mjs catalogo.test.mjs projetos.test.mjs consumo.test.mjs fluxo.test.mjs git.test.mjs padroes.test.mjs`) e, para o ambiente, `npm run verificar`. Não há lint nem build.
+4. Valide com os comandos do projeto: `npm test` (`node --test politica.test.mjs catalogo.test.mjs projetos.test.mjs consumo.test.mjs fluxo.test.mjs git.test.mjs padroes.test.mjs erros.test.mjs`) e, para o ambiente, `npm run verificar`. Não há lint nem build.
 5. Se uma decisão arquitetural mudar, atualize a documentação em `docs/`.
