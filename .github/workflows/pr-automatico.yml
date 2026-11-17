@@ -1,0 +1,34 @@
+name: PR automático
+
+# Ao dar push em uma branch feature-*, abre um PR em rascunho para main
+# (se ainda não existir um para a branch).
+on:
+  push:
+    branches:
+      - 'feature-*'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  abrir-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Abrir PR para main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          existente=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq 'length')
+          if [ "$existente" != "0" ]; then
+            echo "Já existe PR aberto para $BRANCH."
+            exit 0
+          fi
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --draft \
+            --title "$BRANCH" \
+            --body-file .github/pull_request_template.md
