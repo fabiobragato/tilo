@@ -10,6 +10,10 @@ Leia o [`CLAUDE.md`](CLAUDE.md) e a documentação em [`docs/`](docs/) (fonte de
 
 Bugs e sugestões são bem-vindos por Issue. **Não inclua segredos, tokens, caminhos pessoais nem dados de clientes.** Falhas de segurança seguem o [`SECURITY.md`](SECURITY.md), não Issue pública.
 
+## Branches
+
+Toda branch de trabalho neste repositório se chama `feature-*` (por exemplo, `feature-ajustes-readme`); o GitHub recusa a criação de outros nomes, exceto `main`. Ao dar push em uma `feature-*`, uma Action abre automaticamente um PR em **rascunho** para `main`. Quando estiver pronto, marque o PR como "Ready for review". Quem contribui por fork não é afetado pela regra de nome, mas o PR continua indo para `main`.
+
 ## Pull Requests e DCO
 
 Enviar um PR não dá direito automático de alterar o repositório oficial: o mantenedor revisa segurança, testes, documentação e direitos sobre o código.
