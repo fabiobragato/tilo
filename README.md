@@ -10,6 +10,8 @@
 
 Roda só no seu computador (`127.0.0.1`), usa a **sua assinatura** do Claude Code (nunca uma API paga) e não tem dependências: só Node.js.
 
+> **Atenção: o Tilo funciona apenas com o Claude Code CLI (o `claude` no terminal).** O **Claude Desktop não é contemplado** por enquanto. Se você ainda não tem o CLI, siga o [guia oficial de instalação](https://code.claude.com/docs/pt/quickstart).
+
 > **Tilo: Project Knowledge** — central de conhecimento local para desenvolvimento assistido por IA.
 >
 > **Grátis** para uso pessoal, educacional e profissionais autônomos elegíveis. **Licença comercial** para uso empresarial. Confira a [licença](LICENSE), a [permissão para autônomos](FREELANCER-PERMISSION.md) e o [resumo comercial](COMMERCIAL-LICENSE.md): a PolyForm também libera certos usos institucionais (ensino, pesquisa, sem fins lucrativos, governo).
@@ -189,7 +191,7 @@ Detalhes em [`docs/security/`](docs/security/README.md) e [`docs/backend/command
 
 ## Instalação
 
-**Pré-requisitos (Windows):** [Node.js](https://nodejs.org) 20+, [Git for Windows](https://git-scm.com/download/win) (Git Bash) e o [Claude Code](https://claude.com/claude-code) instalado e com login feito.
+**Pré-requisitos (Windows):** [Node.js](https://nodejs.org) 20+, [Git for Windows](https://git-scm.com/download/win) (Git Bash) e o **Claude Code CLI** instalado e com login feito (o Claude Desktop não serve; veja o [guia oficial de instalação](https://code.claude.com/docs/pt/quickstart)).
 
 1. Clone o repositório e abra um terminal na pasta:
    ```
