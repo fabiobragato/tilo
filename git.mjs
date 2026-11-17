@@ -1,6 +1,7 @@
 // Git do Tilo: lê o estado do repositório do projeto (o que não foi commitado, o que não foi enviado) e faz commit/push a pedido do dono.
 // Só roda o executável `git` com argumentos fixos (execFile, sem shell); nada digitado pelo usuário vira comando. Sem dependências.
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -129,15 +130,21 @@ export async function commitar(pasta, caminhos, mensagem, chatIds = []) {
   const e = await estado(pasta);
   if (!e.repo) throw new Error('Esta pasta não é um repositório git.');
   if (!Array.isArray(caminhos) || !caminhos.length) throw new Error('Escolha pelo menos um arquivo.');
-  const escolhidos = [];
+  const escolhidos = [], antigos = [];
   for (const c of new Set(caminhos.map(String))) {
     const a = e.arquivos.find((x) => x.caminho === c);
     if (!a) throw new Error(`Arquivo fora das alterações: ${c}`);
     if (ehSensivel(a.caminho) || (a.antigo && ehSensivel(a.antigo))) throw new Error(`Por segurança, ${c} não é commitado pelo Tilo (parece conter segredos).`);
-    escolhidos.push(a.caminho); if (a.antigo) escolhidos.push(a.antigo);
+    escolhidos.push(a.caminho); if (a.antigo) { escolhidos.push(a.antigo); antigos.push(a.antigo); }
   }
   const msg = montarMensagem(mensagem, chatIds);
-  await git(e.raiz, ['add', '-A', '--', ...escolhidos]);
+  // O caminho antigo de um renomeado já preparado (git mv) não existe mais nem no índice nem na pasta, e o `git add` falharia com "pathspec did not match".
+  // Por isso o add recebe só os caminhos novos e a saída do antigo é registrada com `rm --cached --ignore-unmatch`.
+  // O mesmo vale para um arquivo apagado cuja remoção já foi preparada (`D `): não está mais no índice nem na pasta.
+  const saidas = escolhidos.filter((c) => antigos.includes(c) || !fs.existsSync(path.join(e.raiz, c)));
+  const novos = escolhidos.filter((c) => !saidas.includes(c));
+  if (novos.length) await git(e.raiz, ['add', '-A', '--', ...novos]);
+  if (saidas.length) await git(e.raiz, ['rm', '-r', '--cached', '-q', '--ignore-unmatch', '--', ...saidas]);
   await git(e.raiz, ['commit', '--only', '-F', '-', '--', ...escolhidos], { input: msg });
   const sha = (await git(e.raiz, ['rev-parse', '--short', 'HEAD'])).out.trim();
   return { ok: true, sha, arquivos: escolhidos.length };

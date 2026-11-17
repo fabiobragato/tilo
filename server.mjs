@@ -215,7 +215,12 @@ function gerarSettings() {
   fs.writeFileSync(f, JSON.stringify(base));
   return f;
 }
-const SETTINGS_FILE = gerarSettings();
+let SETTINGS_FILE = gerarSettings();
+// A pasta temporária pode ser limpa com o servidor no ar (usuário ou Windows): recria o arquivo se sumiu, antes de cada processo do claude.
+function garantirSettings() {
+  if (!fs.existsSync(SETTINGS_FILE)) SETTINGS_FILE = gerarSettings();
+  return SETTINGS_FILE;
+}
 // Tom das respostas (menu "Tom" ao lado do modelo): normal, lite, full ou ultra. As regras vivem em tom.mjs (embutidas no projeto, baseadas no Caveman, MIT)
 // e vão no --append-system-prompt de cada processo do claude; nada é instalado nem carregado de fora. TILO_CAVEMAN=off fixa o tom normal e esconde o menu;
 // TILO_CAVEMAN_NIVEL = lite (padrão) | full | ultra define o tom das conversas novas.
@@ -382,7 +387,7 @@ function startJob(chat, text, { mid = crypto.randomUUID(), persistido = true } =
   fs.writeFileSync(mcpCfg, JSON.stringify({ mcpServers: { tilo: { command: process.execPath, args: [path.join(HERE, 'aprovador-mcp.mjs')], env: { TILO_CHAT_ID: chat.id, TILO_PROJECT: proj.id, TILO_PORT: String(PORT) } } } }));
   // stream-json nos dois sentidos: o painel pode mandar mensagens durante a execução e recebe os eventos (texto parcial, ferramentas, fim de turno).
   const args = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--replay-user-messages',
-    '--allowedTools', tools, '--setting-sources', 'project', '--settings', SETTINGS_FILE,
+    '--allowedTools', tools, '--setting-sources', 'project', '--settings', garantirSettings(),
     '--mcp-config', mcpCfg, '--strict-mcp-config', '--permission-prompt-tool', 'mcp__tilo__approve', '--append-system-prompt', JSON.stringify(SYSTEM + (tom === 'normal' && first ? '' : ' ' + instrucaoTom(tom)))];
   if (bloqueadas.length) args.push('--disallowedTools', bloqueadas.join(','));
   const dirsRef = chat.gen ? chat.gen.leitura : catalogo.pastasDeLeitura(chat.referencias || []); // documentos da biblioteca: leitura liberada, escrita bloqueada (settings)
