@@ -1052,6 +1052,17 @@ async function core(req, res, url) {
           return send(res, 200, r);
         } catch (err) {
           audit(P(), { chat: '-', tool: 'git', resumo: 'push falhou', risco: 'producao', decisao: 'erro', quem: 'dono', motivo: redigir(err.message) });
+          return send(res, 400, { erro: mensagemSegura(err), ...(err.acao === 'rebase' && { acao: 'rebase' }) });
+        }
+      }
+      case '/api/alteracoes/rebase': { // reaplica os commits locais sobre a branch do GitHub (só a pedido do dono, depois de um push recusado)
+        if ([...jobs.values()].some((j) => !j.done && j.proj.id === P().id)) return send(res, 409, { erro: 'O Claude está trabalhando neste projeto. Espere terminar (ou pare a conversa) antes de reaplicar.' });
+        try {
+          const r = await gitx.reaplicar(P().ROOT);
+          audit(P(), { chat: '-', tool: 'git', resumo: `rebase sobre ${r.alvo}`, risco: 'normal', decisao: 'liberado', quem: 'dono', motivo: 'oferta após push recusado' });
+          return send(res, 200, r);
+        } catch (err) {
+          audit(P(), { chat: '-', tool: 'git', resumo: 'rebase falhou', risco: 'normal', decisao: 'erro', quem: 'dono', motivo: redigir(err.message) });
           return send(res, 400, { erro: mensagemSegura(err) });
         }
       }

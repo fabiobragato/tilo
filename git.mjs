@@ -18,7 +18,7 @@ function git(cwd, args, { input, ok = [0], timeout = 30_000 } = {}) {
     const p = execFile('git', ['-c', 'core.quotepath=off', ...args], { cwd, windowsHide: true, timeout, maxBuffer: 20_000_000, encoding: 'utf8', env }, (err, stdout, stderr) => {
       const code = err ? (typeof err.code === 'number' ? err.code : -1) : 0;
       if (err && err.code === 'ENOENT') return reject(new Error('O git não foi encontrado neste computador.'));
-      if (err && !ok.includes(code)) return reject(new Error(primeiraLinha(stderr) || err.message));
+      if (err && !ok.includes(code)) return reject(Object.assign(new Error(primeiraLinha(stderr) || err.message), { stderr: String(stderr || '') }));
       resolve({ out: stdout, err: stderr, code });
     });
     if (input !== undefined) p.stdin.end(input); else p.stdin?.end();
@@ -237,12 +237,42 @@ export async function enviar(pasta) {
   if (!e.repo) throw new Error('Esta pasta não é um repositório git.');
   if (e.semRemoto) throw new Error('Este repositório não tem um remoto (GitHub) configurado.');
   if (!e.naoEnviados.length) throw new Error('Não há commits para enviar.');
-  if (e.upstream) await git(e.raiz, ['push'], { timeout: 120_000 });
-  else {
-    const remoto = e.remotos.includes('origin') ? 'origin' : e.remotos[0];
-    await git(e.raiz, ['push', '-u', remoto, 'HEAD'], { timeout: 120_000 });
+  try {
+    if (e.upstream) await git(e.raiz, ['push'], { timeout: 120_000 });
+    else {
+      const remoto = e.remotos.includes('origin') ? 'origin' : e.remotos[0];
+      await git(e.raiz, ['push', '-u', remoto, 'HEAD'], { timeout: 120_000 });
+    }
+  } catch (err) {
+    // O remoto tem commits que a branch local não tem: o git recusa o envio. Explica e marca o erro para a tela oferecer o rebase.
+    if (REJEITADO.test(err.stderr || '')) throw Object.assign(new Error('O GitHub tem commits novos nesta branch que você ainda não tem, por isso o envio foi recusado. Você pode reaplicar os seus commits por cima deles (rebase) e enviar de novo.'), { acao: 'rebase' });
+    throw err;
   }
   return { ok: true, enviados: e.naoEnviados.length };
+}
+const REJEITADO = /\[(remote )?rejected\]|non-fast-forward|fetch first|tip of your current branch is behind/i;
+
+// Rebase: baixa o remoto e reaplica os commits locais não enviados por cima da branch remota (histórico em linha reta).
+// Só reescreve commits que o remoto ainda não tem. Em conflito, o rebase é desfeito e nada muda.
+export async function reaplicar(pasta) {
+  const e = await estado(pasta);
+  if (!e.repo) throw new Error('Esta pasta não é um repositório git.');
+  if (e.semRemoto) throw new Error('Este repositório não tem um remoto (GitHub) configurado.');
+  if (!e.branch) throw new Error('Não há uma branch atual para reaplicar.');
+  const remoto = e.upstream ? e.remotos.find((o) => e.upstream.startsWith(o + '/')) : (e.remotos.includes('origin') ? 'origin' : e.remotos[0]);
+  if (!remoto) throw new Error('Não achei o remoto desta branch.');
+  await git(e.raiz, ['fetch', '--prune', remoto], { timeout: 120_000 });
+  const alvo = e.upstream || `${remoto}/${e.branch}`;
+  const refs = (await git(e.raiz, ['for-each-ref', '--format=%(refname:short)', 'refs/remotes'])).out.split(/\r?\n/);
+  if (!refs.includes(alvo)) throw new Error(`A branch ${alvo} não existe no GitHub.`);
+  const antes = (await git(e.raiz, ['rev-parse', 'HEAD'])).out.trim();
+  try { await git(e.raiz, ['rebase', alvo], { timeout: 120_000 }); }
+  catch (err) {
+    await git(e.raiz, ['rebase', '--abort'], { ok: [0, 128] }).catch(() => {});
+    throw new Error(`Não foi possível reaplicar os commits sobre ${alvo}: ${err.message} O rebase foi desfeito e nada mudou. Resolva no terminal.`);
+  }
+  const novo = (await git(e.raiz, ['rev-parse', 'HEAD'])).out.trim();
+  return { ok: true, alvo, mudou: novo !== antes };
 }
 
 // Pull: baixa o remoto e junta (merge) a branch remota escolhida na branch atual (ex.: origin/develop). Nunca reescreve histórico.

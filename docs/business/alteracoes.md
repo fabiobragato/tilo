@@ -22,7 +22,7 @@ A aba **Alterações** (`#/alteracoes`) mostra o repositório git do projeto: o 
 ## Ações
 
 - **Commitar:** marque os arquivos, escreva a mensagem e confirme. O commit leva só os arquivos marcados (o que estiver preparado à parte fica de fora). As conversas que editaram os arquivos vêm marcadas; dá para desmarcar ou ligar outra. Arquivos que parecem conter segredos (`.env`, `.token`, `.ssh`, `*.pem`, `*.key`, `id_*`) não são commitados nem têm o diff exibido.
-- **Enviar ao GitHub:** `git push` sem forçar, com confirmação na tela. Sem upstream, cria o vínculo com `origin`. Falhas (autenticação, rejeição) aparecem como aviso e nada é forçado.
+- **Enviar ao GitHub:** `git push` sem forçar, com confirmação na tela. Sem upstream, cria o vínculo com `origin`. Falhas (autenticação etc.) aparecem como aviso e nada é forçado. Se o GitHub recusar porque a branch dele tem commits que você não tem (*non-fast-forward*), o aviso explica isso e a tela oferece **Fazer rebase**: com a sua confirmação, o Tilo baixa o remoto (`git fetch`) e reaplica os seus commits não enviados por cima da branch remota (`git rebase`, só commits que o GitHub ainda não tem; eles ganham novos códigos). Em conflito, o rebase é desfeito e nada muda. O rebase não envia nada: depois dele, o **Push** é uma ação à parte, com a sua confirmação. Não roda com o Claude trabalhando no projeto e entra na auditoria.
 - As duas ações entram na auditoria (`tool: git`; o envio como produção). O Claude continua sujeito à [política de comandos](../backend/command-policy.md); estes botões são ações do dono, não do Claude.
 
 ## Segurança
