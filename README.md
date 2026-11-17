@@ -261,7 +261,7 @@ Tudo o que o Tilo faz está descrito em [`docs/`](docs/README.md), a fonte de ve
 - [`docs/frontend/`](docs/frontend/README.md): páginas, estado, design system (todo seletor usa o menu padrão de `assets/combo.js`).
 - [`docs/security/`](docs/security/README.md): token, segredos e aprovação de comandos.
 
-Para contribuir, leia o [`CLAUDE.md`](CLAUDE.md) (regras do projeto) e confira se `docs/` continua batendo com o código.
+Para contribuir, leia o [`CLAUDE.md`](CLAUDE.md) (regras do projeto) e confira se `docs/` continua batendo com o código. Branches seguem o padrão `feature-*`, e o push abre um PR em rascunho para `main` (detalhes em [CONTRIBUTING.md](CONTRIBUTING.md#branches)).
 
 ## Avisos
 
