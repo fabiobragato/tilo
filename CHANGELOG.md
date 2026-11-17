@@ -4,6 +4,15 @@ Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/); 
 
 ## [Não lançado]
 
+### Adicionado
+- Aba Documentação pergunta a **branch base** antes de gerar (inclui branches que só existem no GitHub).
+- Seletor de branch lista as branches que só existem no GitHub e cria a local ao escolher.
+- Botão **Desfazer** por arquivo em "Ainda não commitado", com cópia na lixeira do Tilo.
+- "Tirar da lista" ganha as opções de apagar os dados do Tilo e o `pendencias/README.md` do projeto (vão para `lixeira/`, com confirmação digitando o nome).
+
+### Removido
+- Opção "Montar a documentação do projeto com o Claude" do cadastro de projeto (agora só na aba Documentação).
+
 ### Alterado
 - README: slogan "Tilo: Project Knowledge", seção "Como utilizar o Tilo" no início (instalação, licença gratuita, licença empresarial e patrocínio) e melhorias gerais de apresentação.
 - Apoio voluntário pelo Buy Me a Coffee divulgado no README (não concede licença comercial).

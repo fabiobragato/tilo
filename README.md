@@ -82,9 +82,9 @@ O Tilo junta isso por projeto, num painel simples:
 ## Funcionalidades
 
 ### Seleção de projetos
-Tela estilo console: `←` `→` navegam, `Enter` abre, `1`–`9` abrem direto, `E` edita e `N` cadastra. Cada projeto tem nome, pasta, cor, ícone e logo. Ao cadastrar, o Tilo pode criar a **estrutura base** (`pendencias/`, `docs/`, `planning/`, `CLAUDE.md`), sem nunca sobrescrever nada. Serve tanto para projeto novo quanto para **projeto que já existe**: ao atrelar uma pasta com código, marque **Montar a documentação do projeto com o Claude** e a `docs/` nasce já na estrutura do Tilo.
+Tela estilo console: `←` `→` navegam, `Enter` abre, `1`–`9` abrem direto, `E` edita e `N` cadastra. Cada projeto tem nome, pasta, cor, ícone e logo. Ao cadastrar, o Tilo pode criar a **estrutura base** (`pendencias/`, `docs/`, `planning/`, `CLAUDE.md`), sem nunca sobrescrever nada. Serve tanto para projeto novo quanto para **projeto que já existe**: depois de cadastrar, a aba **Documentação** monta a `docs/` do projeto já na estrutura do Tilo.
 
-![Cadastro de projeto, com a opção de montar a documentação com o Claude](docs/img/10-novo-projeto.png)
+![Cadastro de projeto](docs/img/10-novo-projeto.png)
 
 ### Visão geral
 Críticas abertas, importantes, o que está em andamento, sessões ativas, as próximas ações críticas, as últimas alterações do git e o consumo de tokens do projeto.
@@ -130,7 +130,7 @@ Branch atual, troca e **criação de branch**, arquivos não commitados, commits
 Lista as conversas do painel e as **sessões do Claude Code que você rodou no terminal** (últimos 7 dias). Dá para ver o histórico, dar apelido, vincular a uma pendência, ocultar, continuar numa conversa do painel ou copiar o `claude --resume <id>`. O Tilo só lê esses arquivos; nunca os altera.
 
 ### Documentação com o Claude
-O Claude lê o código e monta (ou confere) a pasta `docs/` num padrão por área: `backend/`, `frontend/`, `business/`, `security/` e as demais que o projeto realmente tem, além de `planning/`, `pendencias/README.md` e `CLAUDE.md`. O modo **Conferir** monta um inventário de fatos do código e compara com cada documento, corrigindo só o que diverge. Nessa conversa o Claude **não tem terminal** e só escreve nas pastas de documentação. As instruções que ele segue estão em [`modelos/documentar.md`](modelos/documentar.md) e podem ser editadas.
+O Claude lê o código e monta (ou confere) a pasta `docs/` num padrão por área: `backend/`, `frontend/`, `business/`, `security/` e as demais que o projeto realmente tem, além de `planning/`, `pendencias/README.md` e `CLAUDE.md`. Você escolhe a **branch base** (a atual, outra local ou uma que só existe no GitHub); o Tilo troca para ela antes de começar e os arquivos novos ficam nela, sem commitar. O modo **Conferir** monta um inventário de fatos do código e compara com cada documento, corrigindo só o que diverge. Nessa conversa o Claude **não tem terminal** e só escreve nas pastas de documentação. As instruções que ele segue estão em [`modelos/documentar.md`](modelos/documentar.md) e podem ser editadas.
 
 ![Documentação](docs/img/07-documentacao.png)
 
@@ -208,7 +208,7 @@ Detalhes em [`docs/security/`](docs/security/README.md) e [`docs/backend/command
    ```
    Ou use `iniciar.cmd` (ou `npm start`). Na primeira vez, entre pelo link com token que o servidor imprime (`Primeiro acesso: http://localhost:4777/?t=...`); depois basta `http://localhost:4777/`.
 4. Abra o Tilo e clique no tile **+** (ou tecle `N`) para cadastrar seu primeiro projeto: nome, pasta (caminho completo de uma pasta que já existe), cor e, se quiser, **Criar estrutura base**.
-   - **Projeto que já tem código?** Marque **Montar a documentação do projeto com o Claude**: o Tilo abre a tela Documentação para você confirmar o início.
+   - **Projeto que já tem código?** Depois de cadastrar, abra o projeto e vá em **Documentação**: escolha a **branch base** e o modelo e confirme o início.
 5. Abra o projeto. Escreva suas pendências em `pendencias/README.md` do projeto e **não apague esse arquivo**: é a fonte de dados do painel.
 
 **Problemas comuns:** `No suitable shell found` significa que o Claude Code não achou o Git Bash. Defina `CLAUDE_CODE_GIT_BASH_PATH` (o `verificar` mostra o caminho) em `~\.claude\settings.json`, na chave `env`, e reinicie. O `bash` do WSL em `System32` não serve.

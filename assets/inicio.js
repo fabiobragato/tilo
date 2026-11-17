@@ -123,7 +123,6 @@ $('#novo-form').addEventListener('submit', async (e) => {
       : await api('/api/projetos', { ...dados, raiz: $('#n-raiz').value.trim(), estruturaBase: $('#n-base').checked });
     if (S.editId) r.id = S.editId, r.criado = [];
     S.v = Date.now();
-    if (!S.editId && $('#n-doc').checked) { location.href = `/p/${r.id}#/documentacao`; return; } // projeto existente: segue para a tela de documentação
     $('#novo').close();
     await carregar();
     S.sel = Math.max(0, S.projetos.findIndex((p) => p.id === r.id)); render();

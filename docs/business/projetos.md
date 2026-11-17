@@ -19,9 +19,9 @@ Permitir que o dono registre as pastas dos seus projetos e abra o painel de cada
 
 ## 3. Fluxos
 
-- **Cadastrar:** tela de seleção, tile "+" ou tecla `N`. Opções: "Criar estrutura base se faltar" (marcada por padrão) e "Montar a documentação do projeto com o Claude".
+- **Cadastrar:** tela de seleção, tile "+" ou tecla `N`. Opção: "Criar estrutura base se faltar" (marcada por padrão). A documentação com o Claude não é pedida no cadastro: fica na aba Documentação do projeto.
 - **Estrutura base:** cria, sem sobrescrever nada que exista, `pendencias/README.md`, `docs/README.md`, `planning/README.md` e `CLAUDE.md`, com textos iniciais curtos.
-- **Montar a documentação:** depois de cadastrar, abre a tela Documentação do projeto; o início da execução ainda precisa ser confirmado ali ([documentacao-com-claude.md](documentacao-com-claude.md)).
+- **Montar a documentação:** depois de cadastrar, abra o projeto e use a aba Documentação ([documentacao-com-claude.md](documentacao-com-claude.md)). Lá você escolhe a branch base e confirma o início.
 - **Editar:** tecla `E` ou botão "Editar projeto". Muda nome, descrição, cor e imagens; a pasta não muda. Dá para remover o ícone ou o logo (volta ao cartão com as iniciais).
 - **Imagem ausente:** o tile e o menu mostram um cartão SVG com as iniciais do nome sobre a cor do projeto.
 - **Dados do projeto:** ficam em `dados/<id>/`, fora da pasta do projeto ([../backend/data-storage.md](../backend/data-storage.md)).

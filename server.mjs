@@ -777,6 +777,14 @@ async function core(req, res, url) {
       case '/api/documentacao/iniciar': { // o Claude lê o projeto e monta/atualiza docs/ no padrão do Tilo (modelos/documentar.md)
         const modo = body.modo === 'atualizar' ? 'atualizar' : 'criar', modelo = MODELS.includes(body.modelo) ? body.modelo : DEFAULT_MODEL;
         if (Object.values(loadChats().chats).some((c) => c.doc && jobs.get(c.id) && !jobs.get(c.id).done)) return send(res, 409, { erro: 'já existe uma documentação em andamento neste projeto' });
+        const branch = str(body.branch, 200).trim(); // branch escolhida na tela: troca antes de começar (o Claude lê o código dela e escreve os arquivos nela)
+        if (branch) {
+          if ([...jobs.values()].some((j) => !j.done && j.proj.id === P().id)) return send(res, 409, { erro: 'O Claude está trabalhando neste projeto. Espere terminar (ou pare a conversa) antes de trocar de branch.' });
+          try {
+            const r = await gitx.trocarBranch(P().ROOT, branch);
+            if (r.mudou) audit(P(), { chat: '-', tool: 'git', resumo: `trocou para a branch ${r.branch}`, risco: 'normal', decisao: 'liberado', quem: 'dono', motivo: 'branch base escolhida na tela Documentação' });
+          } catch (err) { return send(res, 400, { erro: mensagemSegura(err) }); }
+        }
         let tpl; try { tpl = fs.readFileSync(path.join(HERE, 'modelos', 'documentar.md'), 'utf8'); } catch { return send(res, 500, { erro: 'modelo de documentação não encontrado' }); }
         for (const m of ['criar', 'atualizar']) tpl = m === modo ? tpl.replace(`[[${m}]]`, '').replace(`[[/${m}]]`, '') : tpl.replace(new RegExp(`\\[\\[${m}\\]\\][\\s\\S]*?\\[\\[/${m}\\]\\]`), '');
         const prompt = tpl.split('{{NOME}}').join(P().nome);
@@ -1021,6 +1029,15 @@ async function core(req, res, url) {
         try {
           const r = await gitx.commitar(P().ROOT, arquivos, str(body.mensagem, 4000), chats);
           audit(P(), { chat: chats[0] || '-', tool: 'git', resumo: `commit ${r.sha} (${r.arquivos} arquivo(s))`, risco: 'normal', decisao: 'liberado', quem: 'dono', motivo: 'botão Commitar da aba Alterações' });
+          return send(res, 200, r);
+        } catch (err) { return send(res, 400, { erro: mensagemSegura(err) }); }
+      }
+      case '/api/alteracoes/descartar': { // desfaz as alterações não commitadas de um arquivo; guarda cópia em lixeira/descartes/; não com o Claude trabalhando
+        if ([...jobs.values()].some((j) => !j.done && j.proj.id === P().id)) return send(res, 409, { erro: 'O Claude está trabalhando neste projeto. Espere terminar (ou pare a conversa) antes de desfazer alterações.' });
+        try {
+          const bk = path.join(HERE, 'lixeira', 'descartes', `${P().id}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+          const r = await gitx.descartar(P().ROOT, str(body.caminho, 1000), bk);
+          audit(P(), { chat: '-', tool: 'git', resumo: `desfez alterações de ${redigir(str(body.caminho, 200))}`, risco: 'normal', decisao: 'liberado', quem: 'dono', motivo: 'botão Desfazer da aba Alterações (cópia em lixeira/descartes/)' });
           return send(res, 200, r);
         } catch (err) { return send(res, 400, { erro: mensagemSegura(err) }); }
       }

@@ -17,9 +17,10 @@ Gerar e manter a documentação oficial do projeto num padrão por área, a part
 
 ## 3. Fluxo
 
-1. O dono escolhe o modo e o modelo e inicia; o servidor cria uma conversa de documentação e abre a tela de conversa.
-2. O Claude trabalha sem terminal, só com leitura (`Read`, `Grep`, `Glob`) e escrita (`Write`, `Edit`).
-3. A tela Documentação se atualiza a cada 4 segundos enquanto roda, mostrando contagem por área e a lista de arquivos; fica o link para a conversa com o resumo final.
+1. O dono escolhe o modo, o modelo e, se o projeto é um repositório git, a **branch base** (a atual vem selecionada; também aparecem as que só existem no GitHub) e inicia; o servidor cria uma conversa de documentação e abre a tela de conversa.
+2. Se a branch escolhida não é a atual, o Tilo troca para ela antes de começar (alterações não commitadas acompanham; se conflitarem, o git recusa, o aviso aparece e nada começa). A troca entra na auditoria e não roda com o Claude trabalhando no projeto. Os documentos são lidos do código dessa branch e os arquivos novos ficam nela, sem commitar.
+3. O Claude trabalha sem terminal, só com leitura (`Read`, `Grep`, `Glob`) e escrita (`Write`, `Edit`).
+4. A tela Documentação se atualiza a cada 4 segundos enquanto roda, mostrando contagem por área e a lista de arquivos; fica o link para a conversa com o resumo final.
 
 ## Regras
 

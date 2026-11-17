@@ -15,7 +15,7 @@ O backend substitui marcadores nas páginas ao servi-las: `__NONCE__` (todas), e
 
 - Carrega `/api/projetos` e desenha uma fileira de tiles (ícone de cada projeto) mais o tile "+".
 - Teclado: setas navegam, `Enter` abre, `1`–`9` abrem direto, `E` edita o selecionado, `N` cadastra.
-- Formulário (`<dialog id="novo">`) serve para cadastrar e editar: nome, descrição, pasta (só no cadastro), cor, ícone e logo, "Criar estrutura base" e "Montar a documentação do projeto com o Claude". Imagens: PNG, JPG ou WEBP até 1,5 MB, conferidas no cliente e de novo no servidor.
+- Formulário (`<dialog id="novo">`) serve para cadastrar e editar: nome, descrição, pasta (só no cadastro), cor, ícone e logo, e "Criar estrutura base". Imagens: PNG, JPG ou WEBP até 1,5 MB, conferidas no cliente e de novo no servidor.
 - Atalhos de URL: `/#novo` abre o cadastro; `/#editar` edita o projeto selecionado.
 - Relógio no topo atualizado a cada 15 segundos.
 - Se o cadastro marcou a documentação, segue para `/p/<id>#/documentacao`.

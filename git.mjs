@@ -150,6 +150,42 @@ export async function commitar(pasta, caminhos, mensagem, chatIds = []) {
   return { ok: true, sha, arquivos: escolhidos.length };
 }
 
+// Desfaz as alterações ainda não commitadas de UM arquivo: volta ao que está no último commit (arquivo novo é removido).
+// Antes, guarda uma cópia em dirBackup (patch do que mudou, ou o próprio arquivo se era novo), então nada some de vez.
+export async function descartar(pasta, caminho, dirBackup) {
+  const e = await estado(pasta);
+  if (!e.repo) throw new Error('Esta pasta não é um repositório git.');
+  const a = e.arquivos.find((x) => x.caminho === String(caminho));
+  if (!a) throw new Error('Esse arquivo não está entre as alterações.');
+  if (a.rotulo === 'conflito') throw new Error('Arquivo em conflito: resolva no terminal.');
+  if (ehSensivel(a.caminho) || (a.antigo && ehSensivel(a.antigo))) throw new Error('Por segurança, o Tilo não mexe neste arquivo (parece conter segredos).');
+  if (!dirBackup) throw new Error('Sem pasta de backup.');
+  const dentro = (rel) => { const f = path.resolve(e.raiz, rel); if (!f.startsWith(path.resolve(e.raiz) + path.sep)) throw new Error('Caminho inválido.'); return f; };
+  const comCommit = await temCommit(e.raiz);
+  const noCommit = async (rel) => comCommit && (await git(e.raiz, ['cat-file', '-e', `HEAD:${rel}`], { ok: [0, 128] })).code === 0;
+  fs.mkdirSync(dirBackup, { recursive: true });
+  const nome = a.caminho.replace(/[\\/]/g, '__');
+  // backup: o patch do que mudou (se o arquivo já existia no commit) e, se ainda existe na pasta, a cópia atual
+  if (!a.naoRastreado && comCommit) {
+    const patch = (await git(e.raiz, ['diff', 'HEAD', '--binary', '--no-color', '--', a.caminho, ...(a.antigo ? [a.antigo] : [])])).out;
+    if (patch) fs.writeFileSync(path.join(dirBackup, `${nome}.patch`), patch);
+  }
+  const f = dentro(a.caminho);
+  if (fs.existsSync(f) && fs.statSync(f).isFile()) fs.copyFileSync(f, path.join(dirBackup, nome));
+  if (a.naoRastreado) { fs.rmSync(f, { force: true }); return { ok: true, acao: 'removido' }; }
+  if (a.antigo) { // renomeado: volta o nome antigo e tira o novo
+    await git(e.raiz, ['rm', '-f', '--cached', '-q', '--ignore-unmatch', '--', a.caminho]);
+    fs.rmSync(f, { force: true });
+    await git(e.raiz, ['restore', '--source=HEAD', '--staged', '--worktree', '--', a.antigo]);
+    return { ok: true, acao: 'restaurado' };
+  }
+  if (await noCommit(a.caminho)) { await git(e.raiz, ['restore', '--source=HEAD', '--staged', '--worktree', '--', a.caminho]); return { ok: true, acao: 'restaurado' }; }
+  // novo e já preparado (não existe no último commit): tira do índice e da pasta
+  await git(e.raiz, ['rm', '-f', '--cached', '-q', '--ignore-unmatch', '--', a.caminho]);
+  fs.rmSync(f, { force: true });
+  return { ok: true, acao: 'removido' };
+}
+
 // Nome de branch aceito: letras, números, . _ - / (ex.: feature-login, feature/login); sem "..", sem começar com "-", e válido para o git.
 export async function nomeBranchValido(raiz, nome) {
   const n = String(nome || '').trim();
@@ -158,10 +194,20 @@ export async function nomeBranchValido(raiz, nome) {
   return n;
 }
 
-// Troca para uma branch local existente. O git recusa se houver alterações que conflitam; as demais acompanham você.
+// Troca para uma branch local existente ou para uma que só existe no GitHub (ex.: origin/develop): nesse caso cria a branch local
+// com o mesmo nome, acompanhando a remota. O git recusa se houver alterações que conflitam; as demais acompanham você.
 export async function trocarBranch(pasta, nome) {
   const e = await estado(pasta);
   if (!e.repo) throw new Error('Esta pasta não é um repositório git.');
+  if (e.remotas.includes(String(nome))) {
+    const origem = e.remotos.find((o) => String(nome).startsWith(o + '/'));
+    const local = String(nome).slice(origem.length + 1);
+    if (!e.branches.includes(local)) {
+      await git(e.raiz, ['switch', '--track', '-c', local, String(nome)]);
+      return { ok: true, branch: local, mudou: true };
+    }
+    nome = local; // já existe uma branch local com esse nome: só troca para ela
+  }
   if (!e.branches.includes(String(nome))) throw new Error('Essa branch não existe neste repositório.');
   if (nome === e.branch) return { ok: true, branch: nome, mudou: false };
   await git(e.raiz, ['switch', '--', String(nome)]);
