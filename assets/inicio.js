@@ -83,11 +83,24 @@ function editar(p) {
   IMG.rmIcone = IMG.rmLogo = false;
   abrirForm(true);
 }
+// Modal de confirmação no padrão da tela (substitui o confirm() nativo). Esc, clique fora e Cancelar cancelam.
+function confirmarRemocao(p) {
+  const dlg = $('#conf');
+  $('#conf-t').textContent = `Tirar "${p.nome}" da lista?`;
+  $('#conf-sub').textContent = 'O projeto some da seleção, mas pode ser adicionado de novo depois.';
+  $('#conf-det').textContent = 'A pasta do projeto e as conversas guardadas no Tilo NÃO são apagadas.';
+  return new Promise((resolve) => {
+    let r = false;
+    dlg.onclick = (e) => { const id = e.target.closest('button')?.id; if (id === 'conf-ok') { r = true; dlg.close(); } else if (id === 'conf-no' || e.target === dlg) dlg.close(); };
+    dlg.onclose = () => { dlg.onclick = dlg.onclose = null; resolve(r); };
+    dlg.showModal(); $('#conf-no').focus();
+  });
+}
 $('#info').addEventListener('click', async (e) => {
   if (e.target.closest('#edit-btn')) return editar(S.projetos[S.sel]);
   if (!e.target.closest('#del-btn')) return;
   const p = S.projetos[S.sel]; if (!p) return;
-  if (!confirm(`Tirar "${p.nome}" da lista do Tilo?\n\nA pasta do projeto e as conversas guardadas no Tilo NÃO são apagadas.`)) return;
+  if (!await confirmarRemocao(p)) return;
   try { await api('/api/projetos/remover', { id: p.id }); S.sel = 0; await carregar(); toast('Projeto removido da lista.'); }
   catch (x) { toast(x.message); }
 });
