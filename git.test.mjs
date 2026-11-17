@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { estado, diff, commitar, enviar, puxar, trocarBranch, criarBranch, nomeBranchValido, historico, arquivosDoCommit, diffDoCommit, lerArquivosDoCommit, lerStatus, lerLog, montarMensagem, injetarTrailer, ehSensivel, vincularArquivos, gitDisponivel } from './git.mjs';
+import { estado, diff, commitar, enviar, puxar, reaplicar, trocarBranch, criarBranch, nomeBranchValido, historico, arquivosDoCommit, diffDoCommit, lerArquivosDoCommit, lerStatus, lerLog, montarMensagem, injetarTrailer, ehSensivel, vincularArquivos, gitDisponivel } from './git.mjs';
 
 const temGit = await gitDisponivel();
 const ID1 = '11111111-1111-4111-8111-111111111111';
@@ -125,6 +125,30 @@ test('commits não enviados, vínculo por trailer e push', { skip: !temGit }, as
   assert.equal(e.naoEnviados[0].assunto, 'Cria b');
   assert.equal((await enviar(dir)).enviados, 1);
   assert.equal((await estado(dir)).naoEnviados.length, 0);
+});
+
+test('push recusado (remoto à frente) avisa com clareza e o rebase reaplica os commits locais', { skip: !temGit }, async () => {
+  const dir = repo(), remoto = tmp('bare-rej');
+  sh(remoto, 'init', '-q', '--bare', '-b', 'main');
+  sh(dir, 'remote', 'add', 'origin', remoto);
+  await enviar(dir);
+  const outro = tmp('clone-rej');
+  sh(outro, 'clone', '-q', remoto, '.');
+  sh(outro, 'config', 'user.email', 'o@o.o'); sh(outro, 'config', 'user.name', 'Outro'); sh(outro, 'config', 'commit.gpgsign', 'false');
+  fs.writeFileSync(path.join(outro, 'b.txt'), 'b\n'); sh(outro, 'add', '.'); sh(outro, 'commit', '-q', '-m', 'do outro'); sh(outro, 'push', '-q', 'origin', 'main');
+  fs.writeFileSync(path.join(dir, 'c.txt'), 'c\n'); await commitar(dir, ['c.txt'], 'Meu c');
+  await assert.rejects(enviar(dir), (e) => e.acao === 'rebase' && /GitHub tem commits novos/.test(e.message) && !/^To /.test(e.message));
+  const r = await reaplicar(dir);
+  assert.deepEqual([r.ok, r.alvo, r.mudou], [true, 'origin/main', true]);
+  assert.equal((await enviar(dir)).enviados, 1);
+  assert.equal(sh(dir, 'log', '--format=%s', '-3').trim().split('\n').join('|'), 'Meu c|do outro|inicial');
+  // conflito: o rebase é desfeito e nada muda
+  fs.writeFileSync(path.join(outro, 'a.txt'), 'outro\n'); sh(outro, 'commit', '-qam', 'a do outro'); sh(outro, 'pull', '-q', '--rebase', 'origin', 'main'); sh(outro, 'push', '-q', 'origin', 'main');
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'meu\n'); sh(dir, 'commit', '-qam', 'a meu');
+  const antes = sh(dir, 'rev-parse', 'HEAD');
+  await assert.rejects(reaplicar(dir), /desfeito/);
+  assert.equal(sh(dir, 'rev-parse', 'HEAD'), antes);
+  assert.equal((await estado(dir)).arquivos.length, 0);
 });
 
 test('pasta que não é repositório', { skip: !temGit }, async () => {

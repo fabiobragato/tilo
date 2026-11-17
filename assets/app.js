@@ -80,7 +80,7 @@ const PROJ = (location.pathname.match(/^\/p\/([a-z0-9-]+)/) || [])[1] || '';
 const BASE_TITLE = document.title;
 async function api(path, body) {
   const r = await fetch(path.replace(/^\/api\//, `/api/p/${PROJ}/`), { method: body ? 'POST' : 'GET', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).erro || r.statusText);
+  if (!r.ok) { const j = await r.json().catch(() => ({})); throw Object.assign(new Error(j.erro || r.statusText), { acao: j.acao }); }
   return r.json();
 }
 
@@ -1328,8 +1328,16 @@ async function altPush() {
   if (!(await confirmar({ titulo: `Enviar ${n} commit${n === 1 ? '' : 's'} ao GitHub?`, texto: 'Isso publica os commits no repositório remoto (git push). É uma ação de produção e fica registrada na auditoria.', ok: 'Enviar', perigo: true, icone: 'pi-upload' }))) return;
   A.busy = true; renderAlteracoes(); renderChatGit();
   try { const r = await api('/api/alteracoes/push', {}); toast(`${r.enviados} commit${r.enviados === 1 ? '' : 's'} enviado${r.enviados === 1 ? '' : 's'}`); }
-  catch (x) { toast(x.message); }
+  catch (x) {
+    if (x.acao === 'rebase') await altRebase(x.message); else toast(x.message);
+  }
   A.busy = false; await loadAlteracoes(true);
+}
+// Push recusado porque o GitHub tem commits novos: explica e, se o dono confirmar, reaplica os commits locais por cima (rebase). O push novo é uma ação à parte.
+async function altRebase(motivo) {
+  if (!(await confirmar({ titulo: 'Envio recusado: o GitHub está à frente', texto: `${motivo}\n\nO rebase pega os seus commits ainda não enviados e os refaz por cima do que o GitHub já tem (eles ganham novos códigos, mas o conteúdo é o mesmo). Se der conflito, o Tilo desfaz e nada muda. Depois clique em Push de novo.`, ok: 'Fazer rebase', icone: 'pi-replay' }))) return;
+  try { const r = await api('/api/alteracoes/rebase', {}); toast(r.mudou ? `Commits reaplicados sobre ${r.alvo}. Clique em Push para enviar.` : `Já estava em dia com ${r.alvo}`); }
+  catch (x) { toast(x.message); }
 }
 document.addEventListener('input', (e) => { if (e.target.dataset?.alt === 'msg') S.alt.msg = e.target.value; });
 setInterval(() => { if (!document.hidden && !S.alt.busy) loadAlteracoes(); }, 8000);
