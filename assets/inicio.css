@@ -64,3 +64,9 @@ dialog.novo[open]{animation:pop .16s ease-out}@keyframes pop{from{opacity:0;tran
 .b .pi{font-size:.92em;opacity:.85}.b:hover .pi{opacity:1}
 .b:active:not(:disabled){transform:translateY(1px)}
 .b:focus-visible{outline:2px solid var(--sel);outline-offset:2px}
+
+dialog.conf{width:min(440px,94vw)}
+.conf .cb{display:flex;flex-direction:column;gap:14px;padding:22px 24px}
+.conf .nic{background:#ff5d7433;color:#ff9aa8}
+.conf .cdet{margin:0;padding:10px 12px;border-radius:10px;background:#ffffff0d;font-size:.8rem;line-height:1.55;color:#cfd2f5}
+.b.danger{background:#e5484d;border-color:#e5484d;color:#fff}.b.danger:hover{background:#cf3a3f}

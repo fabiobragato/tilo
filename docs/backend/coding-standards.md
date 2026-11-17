@@ -31,3 +31,9 @@ Cobre as convenções que o código segue, os testes e os comandos de validaçã
 | `npm run verificar` | Confere o ambiente (PowerShell). |
 
 Não há lint, formatador nem build. O CI (`.github/workflows/ci.yml`) roda `npm test` a cada push e pull request, em Windows e Ubuntu, com Node 20 e 22. O servidor (`server.mjs`) ainda não tem testes automatizados.
+
+## Branches e PR automático
+
+- Toda branch de trabalho se chama `feature-*` (o botão **Nova branch** do Tilo já sugere o prefixo). `main` é a única exceção.
+- O nome é imposto no GitHub, não no código: Settings → Rules → Rulesets, ruleset com alvo "todas as branches", exceto `main` e `feature-*` (Exclude by pattern), e a regra "Restrict creations". ("Restrict branch names" só existe em organizações.)
+- `.github/workflows/pr-automatico.yml`: no push em `feature-*`, abre um PR **em rascunho** para `main`, com o corpo de `.github/pull_request_template.md`. Se já houver PR aberto da branch, não faz nada. Exige Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests". O PR nasce no push, não no commit local.
