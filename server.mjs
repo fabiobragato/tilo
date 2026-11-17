@@ -209,7 +209,7 @@ function gerarSettings() {
   const arquivos = ['server.mjs', 'aprovador-mcp.mjs', 'politica.mjs', 'catalogo.mjs', 'projetos.mjs', 'fluxo.mjs', 'consumo.mjs', 'tom.mjs', 'git.mjs', 'claude-settings.json', 'projetos.json',
     'index.html', 'inicio.html', 'package.json', 'iniciar.cmd', 'politica.test.mjs', 'catalogo.test.mjs', 'projetos.test.mjs', 'fluxo.test.mjs', 'padroes.test.mjs', 'consumo.test.mjs', 'git.test.mjs', 'server.test.mjs'];
   base.permissions.deny.push(`Read(**/${pasta}/.token)`, `Read(**/${pasta}/projetos.json)`,
-    ...['assets', 'modelos', 'scripts', 'dados', 'catalogo', 'logos'].flatMap((d) => [`Edit(**/${pasta}/${d}/**)`, `Write(**/${pasta}/${d}/**)`]),
+    ...['assets', 'modelos', 'scripts', 'dados', 'catalogo', 'logos', 'lixeira'].flatMap((d) => [`Edit(**/${pasta}/${d}/**)`, `Write(**/${pasta}/${d}/**)`]),
     ...arquivos.flatMap((f) => [`Edit(**/${pasta}/${f})`, `Write(**/${pasta}/${f})`]));
   const f = path.join(os.tmpdir(), 'tilo-settings.json');
   fs.writeFileSync(f, JSON.stringify(base));
@@ -690,8 +690,8 @@ async function core(req, res, url) {
         try { const r = projetos.adicionar({ nome: body.nome, raiz: body.raiz, cor: body.cor, descricao: body.descricao, estruturaBase: body.estruturaBase === true, icone: body.icone, logo: body.logo }); return send(res, 200, r); }
         catch (e) { return send(res, 400, { erro: mensagemSegura(e) }); }
       }
-      case '/api/projetos/remover': { // só tira da lista; pasta do projeto e dados/ ficam intactos
-        try { return send(res, 200, projetos.remover(String(body.id || ''))); }
+      case '/api/projetos/remover': { // tira da lista; com apagarDados também apaga dados/<id>/ e logos. A pasta do projeto nunca é tocada
+        try { return send(res, 200, projetos.remover(String(body.id || ''), { apagarDados: body.apagarDados === true, apagarPendencias: body.apagarPendencias === true })); }
         catch (e) { return send(res, 400, { erro: mensagemSegura(e) }); }
       }
       case '/api/projetos/editar': {

@@ -26,7 +26,7 @@ Cobre as rotas HTTP de `server.mjs`, o formato das respostas, os limites e os c�
 |---|---|---|
 | GET | `/api/projetos` | Lista os projetos (`id`, `nome`, `descricao`, `cor`, `logo`, `logoLargo`, `temIcone`, `temLogo`). |
 | POST | `/api/projetos` | Cadastra projeto: `nome`, `raiz`, `cor`, `descricao`, `estruturaBase`, `icone`, `logo`. Devolve `{ id, criado }`. |
-| POST | `/api/projetos/remover` | Tira o projeto (`id`) da lista. Não apaga a pasta do projeto nem `dados/<id>/`. |
+| POST | `/api/projetos/remover` | Tira o projeto (`id`) da lista. Não apaga a pasta do projeto. Com `apagarDados: true`, move também `dados/<id>/` e as imagens em `logos/` para `lixeira/`; sem isso, `dados/<id>/` fica. Com `apagarPendencias: true`, tira o arquivo de pendências do projeto (cópia em `lixeira/`; a pasta some se ficar vazia). |
 | POST | `/api/projetos/editar` | Edita `nome`, `cor`, `descricao`, `icone`, `logo`, `removerIcone`, `removerLogo` de um projeto (`id`). |
 
 ## Rotas de projeto — GET

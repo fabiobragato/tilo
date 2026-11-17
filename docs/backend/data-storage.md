@@ -12,6 +12,7 @@ Cobre os arquivos e pastas que o servidor lê e grava. O Tilo não usa banco de 
 | `dados/<id>/sessoes-meta.json` | Apelido, vínculo e ocultação de sessões do terminal. | ignorado |
 | `dados/<id>/auditoria.jsonl` | Log de auditoria (uma linha JSON por evento). | ignorado |
 | `logos/<id>-icone.<ext>`, `logos/<id>-logo.<ext>` | Imagens do projeto (`png`, `jpg` ou `webp`). | ignorado |
+| `lixeira/<id>-<data>/` | Projeto removido com "apagar": `projeto.json` (cadastro), `dados/`, `logos/` e `pendencias-README.md`. Para desfazer, copie de volta. Esvazie à mão quando quiser. | ignorado |
 | `catalogo/<coleção>/<área>/<arquivo>.md` e `catalogo/<coleção>/manifest.json` | Biblioteca de documentos. | ignorado |
 | `.token` | Token de acesso. | ignorado |
 | `tilo.log`, `tilo.err.log` | Saída do servidor iniciado pelo atalho. | ignorado |

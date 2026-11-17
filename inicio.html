@@ -49,6 +49,9 @@
   <div class="cb">
     <div class="nh"><span class="nic"><i class="pi pi-exclamation-triangle"></i></span><div><b id="conf-t"></b><span id="conf-sub"></span></div></div>
     <p class="cdet" id="conf-det"></p>
+    <label class="chk"><input id="conf-dados" type="checkbox"> Apagar também os dados do Tilo deste projeto<small>Conversas, auditoria, permissões e imagens guardadas no Tilo. Vão para a pasta <code>lixeira/</code> do Tilo (dá para recuperar à mão). A pasta do projeto continua intacta.</small></label>
+    <label class="chk"><input id="conf-pend" type="checkbox"> Apagar também <code>pendencias/README.md</code> do projeto<small>Tem suas decisões e tarefas. Uma cópia fica em <code>lixeira/</code> do Tilo. A pasta <code>pendencias/</code> só some se ficar vazia. <code>CLAUDE.md</code> e <code>docs/</code> continuam.</small></label>
+    <label class="fld" id="conf-nome-w" hidden>Digite o nome do projeto para confirmar<input id="conf-nome" type="text" autocomplete="off" spellcheck="false"></label>
     <div class="nf"><button type="button" class="b" id="conf-no">Cancelar</button><button type="button" class="b danger" id="conf-ok"><i class="pi pi-trash"></i> Tirar da lista</button></div>
   </div>
 </dialog>

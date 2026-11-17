@@ -9,6 +9,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BASE = process.env.TILO_DADOS_BASE ? path.resolve(process.env.TILO_DADOS_BASE) : HERE; // só os testes mudam isto: isola projetos.json, dados/ e logos/
 const FILE = path.join(BASE, 'projetos.json');
 const DADOS = path.join(BASE, 'dados');
+const LIXEIRA = path.join(BASE, 'lixeira'); // projetos removidos com "apagar": nada some de vez
 const CLAUDE_HOME = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 const PASTAS_PADRAO = ['docs', 'planning', 'pendencias', 'apps', 'infra'];
 const ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
@@ -164,12 +165,41 @@ export function editar({ id, nome, cor, descricao, icone, logo, removerIcone, re
   return { id };
 }
 
-// Tira o projeto da lista do Tilo. NÃO apaga nada: a pasta do projeto, dados/<id>/ (conversas, auditoria) e logos/ ficam como estão.
-export function remover(id) {
+// Tira o projeto da lista do Tilo. Por padrão NÃO apaga nada: dados/<id>/ (conversas, auditoria) e logos/ ficam como estão.
+// Com apagarDados, tira também do lugar o que o Tilo guardou do projeto (dados/<id>/ e as imagens em logos/).
+// Com apagarPendencias, tira também o arquivo de pendências da pasta do projeto (e a pasta dele, se ficar vazia). Nada além disso.
+// Nada é apagado de vez: tudo vai para lixeira/<id>-<data>/ (com projeto.json, o cadastro: cor, descrição, permissões). Para desfazer, copie de volta.
+export function remover(id, { apagarDados = false, apagarPendencias = false } = {}) {
   const registro = lerRegistro();
-  if (!registro.some((x) => x.id === id)) throw new Error('projeto não encontrado');
+  const r = registro.find((x) => x.id === id);
+  if (!r) throw new Error('projeto não encontrado');
+  const mover = apagarDados === true || apagarPendencias === true;
+  const lixo = path.join(LIXEIRA, `${id}-${new Date().toISOString().replace(/[:.]/g, '-')}`);
+  if (mover) { // salva o cadastro antes de qualquer coisa: se algo falhar, nada se perde
+    fs.mkdirSync(lixo, { recursive: true });
+    fs.writeFileSync(path.join(lixo, 'projeto.json'), JSON.stringify(r, null, 2));
+  }
   fs.writeFileSync(FILE, JSON.stringify({ projetos: registro.filter((x) => x.id !== id) }, null, 2));
-  return { id };
+  if (apagarDados === true && ID.test(id)) {
+    try { fs.renameSync(path.join(DADOS, id), path.join(lixo, 'dados')); } catch {}
+    const logos = path.join(BASE, 'logos') + path.sep;
+    for (const campo of ['icone', 'logo']) {
+      if (!r[campo]) continue;
+      const f = path.resolve(BASE, r[campo]);
+      if (f.startsWith(logos)) { try { fs.mkdirSync(path.join(lixo, 'logos'), { recursive: true }); fs.renameSync(f, path.join(lixo, 'logos', path.basename(f))); } catch {} } // só dentro de logos/
+    }
+  }
+  let pendenciasApagadas = false;
+  if (apagarPendencias === true && r.raiz) {
+    const raiz = path.resolve(r.raiz);
+    const f = path.resolve(raiz, r.pendencias || 'pendencias/README.md');
+    if (f.startsWith(raiz + path.sep)) { // só dentro da pasta do projeto
+      try { fs.copyFileSync(f, path.join(lixo, 'pendencias-README.md')); fs.unlinkSync(f); pendenciasApagadas = true; } catch {} // só apaga se a cópia deu certo
+      const dir = path.dirname(f);
+      if (dir !== raiz) { try { fs.rmdirSync(dir); } catch {} } // rmdir só remove pasta vazia
+    }
+  }
+  return { id, dadosApagados: apagarDados === true, pendenciasApagadas, lixeira: mover ? lixo : null };
 }
 
 // Ícone do projeto: arquivo configurado ou um cartão SVG com as iniciais (sempre há algo para mostrar).

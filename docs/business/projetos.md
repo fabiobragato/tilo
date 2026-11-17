@@ -28,7 +28,7 @@ Permitir que o dono registre as pastas dos seus projetos e abra o painel de cada
 
 ## Regras
 
-- **Tirar da lista:** botão "Tirar da lista" na tela de seleção (com confirmação) ou `POST /api/projetos/remover`. Só retira o projeto de `projetos.json`: a pasta do projeto, `dados/<id>/` (conversas, auditoria) e `logos/` não são apagados.
+- **Tirar da lista:** botão "Tirar da lista" na tela de seleção (com confirmação) ou `POST /api/projetos/remover`. Por padrão só retira o projeto de `projetos.json`: a pasta do projeto, `dados/<id>/` (conversas, auditoria) e `logos/` não são apagados. A confirmação tem a caixa "Apagar também os dados do Tilo deste projeto" (desmarcada por padrão; `apagarDados: true` na API): move `dados/<id>/` e as imagens do projeto em `logos/` para `lixeira/<id>-<data>/` (junto com `projeto.json`, o cadastro com cor, descrição e permissões); para desfazer, copie de volta. A caixa "Apagar também `pendencias/README.md` do projeto" (desmarcada por padrão; `apagarPendencias: true`) tira só esse arquivo da pasta do projeto (uma cópia vai para a mesma lixeira) e apaga a pasta `pendencias/` se ficar vazia. Marcar qualquer uma das duas caixas exige digitar o nome do projeto para liberar o botão. Nada mais da pasta do projeto é apagado (`CLAUDE.md`, `docs/` e `planning/` ficam).
 - O Tilo só funciona no Windows (decisão do dono); macOS e Linux estão fora do escopo.
 - A pasta cadastrada é onde o `claude` roda (diretório de trabalho).
 - Arquivos do projeto liberados para visualização no painel: pastas listadas em `pastasLegiveis` (padrão `docs`, `planning`, `pendencias`, `apps`, `infra`); nunca arquivos `.env`.
