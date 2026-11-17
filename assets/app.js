@@ -404,7 +404,7 @@ function abrirCommitModal() {
   const dlg = $('#cdlg'), A = S.alt;
   if (!A.dados?.repo) return;
   if (dlg.open) { const antigo = dlg.onclose; dlg.close(); antigo?.(); }
-  A.modal = true; dlg.classList.remove('prod'); dlg.classList.add('cm');
+  A.modal = true; A.erroCommit = ''; dlg.classList.remove('prod'); dlg.classList.add('cm');
   dlg.onclick = (e) => { if (e.target === dlg) dlg.close(); };
   dlg.onclose = () => { if (dlg.open) return; A.modal = false; dlg.classList.remove('cm'); dlg.onclick = dlg.onclose = null; };
   renderCommitModal(true); dlg.showModal();
@@ -433,7 +433,8 @@ function renderCommitModal(forcar) {
       <div class="cdlg-campos"><label for="alt-msg-m">Mensagem do commit</label><textarea id="alt-msg-m" class="inp alt-msg" rows="3" maxlength="4000" placeholder="Descreva o que mudou" data-alt="msg">${esc(msg ? msg.value : A.msg)}</textarea></div>
       <div class="alt-vinc"><span class="muted small">Conversas ligadas:</span>${conv.length ? conv.map((c) => `<label class="alt-chk"><input type="checkbox" data-chg="alt-conv" data-id="${c.id}" ${c.marcada ? 'checked' : ''}> ${esc(short(c.titulo, 30))}</label>`).join('') : '<span class="muted small">nenhuma</span>'}
         ${outras.length ? `<select class="sel sm" data-chg="alt-addchat" aria-label="Ligar outra conversa"><option value="">Ligar outra conversa…</option>${outras.map((c) => `<option value="${c.id}">${esc(short(c.title, 40))}</option>`).join('')}</select>` : ''}</div>`
-      : '<div class="muted small">Nada para commitar: tudo o que foi alterado já está num commit.</div>'}</div>
+      : '<div class="muted small">Nada para commitar: tudo o que foi alterado já está num commit.</div>'}
+      ${A.erroCommit ? `<p class="cdetalhe cm-erro" role="alert">${esc(A.erroCommit)}</p>` : ''}</div>
     <div class="aft"><span class="muted small">Cria um commit local; nada vai ao GitHub.</span><span class="sp"></span><button type="button" class="btn" data-act="cm-fechar">Fechar</button>
       ${g.arquivos.length ? `<button type="button" class="btn primary" data-act="alt-commit" data-modal="1" ${A.busy || !nSel ? 'disabled' : ''} title="Cria um commit só com os arquivos marcados"><i class="pi pi-check"></i> Commitar ${nSel} arquivo${nSel === 1 ? '' : 's'}</button>` : ''}</div>`;
   const nova = dlg.querySelector('.cm-lista'); if (nova) nova.scrollTop = rolagem;
@@ -1156,7 +1157,7 @@ function renderPermissoes() {
 // S.alt: dados (resposta de /api/alteracoes), sel (arquivos marcados para o commit), vistos (arquivos já apresentados; os novos entram marcados),
 // fora (conversas desmarcadas), extra (conversas vinculadas à mão), msg (mensagem do commit), abertos/diffs (diffs expandidos), busy.
 // S.alt.hist: histórico de commits (commits, mais, chave = head+não enviados para saber quando recarregar, abertos = commits expandidos, arqs/diffs por commit).
-S.alt = { hist: { commits: [], pagina: 1, total: 0, carregando: false, chave: '', abertos: new Set(), arqs: {}, diffs: {}, erro: '' }, dados: null, sel: new Set(), vistos: new Set(), fora: new Set(), extra: new Set(), msg: '', abertos: new Set(), diffs: {}, busy: false, sig: '', erro: '' };
+S.alt = { hist: { commits: [], pagina: 1, total: 0, carregando: false, chave: '', abertos: new Set(), arqs: {}, diffs: {}, erro: '' }, dados: null, sel: new Set(), vistos: new Set(), fora: new Set(), extra: new Set(), msg: '', abertos: new Set(), diffs: {}, busy: false, erroCommit: "", sig: '', erro: '' };
 const altTotal = () => (S.alt.dados?.repo ? S.alt.dados.arquivos.length + S.alt.dados.naoEnviados.length : 0);
 async function loadAlteracoes(forcar) {
   try {
@@ -1308,10 +1309,10 @@ async function altCommit(doModal) {
   if (!msg) return toast('Escreva a mensagem do commit');
   const chats = altConversasDoCommit().filter((c) => c.marcada).map((c) => c.id);
   if (!doModal && !(await confirmar({ titulo: `Commitar ${arquivos.length} arquivo${arquivos.length === 1 ? '' : 's'}?`, texto: 'Cria um commit local com os arquivos marcados. Nada vai para o GitHub ainda.', ok: 'Commitar', icone: 'pi-check' }))) return;
-  A.busy = true; renderAlteracoes();
+  A.busy = true; A.erroCommit = ''; renderAlteracoes();
   let ok = false;
   try { const r = await api('/api/alteracoes/commit', { arquivos, mensagem: msg, chats }); A.msg = ''; A.fora.clear(); A.extra.clear(); ok = true; toast('Commit ' + r.sha + ' criado'); }
-  catch (x) { toast(x.message); }
+  catch (x) { if (doModal && A.modal) A.erroCommit = x.message; else toast(x.message); } // o toast fica atrás do modal aberto; no modal o erro aparece dentro dele
   A.busy = false; if (ok && doModal && A.modal) $('#cdlg').close();
   await loadAlteracoes(true);
 }

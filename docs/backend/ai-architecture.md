@@ -12,7 +12,7 @@ Função `startJob` em `server.mjs` (estado da conversa em `fluxo.mjs`). **Uma c
 | `--allowedTools` | Sempre `Read,Grep,Glob`. Editar e rodar comandos passam SEMPRE pelo aprovador, que decide pelo **modo atual** da conversa. |
 | `--disallowedTools` | Só em conversa de documentação: `Bash,PowerShell`. |
 | `--setting-sources project` | Só configurações do projeto. |
-| `--settings` | `<tmp>/tilo-settings.json`, gerado na partida (ver abaixo). |
+| `--settings` | `<tmp>/tilo-settings.json`, gerado na partida e recriado antes de cada processo do `claude` se sumir (ver abaixo). |
 | `--mcp-config` + `--strict-mcp-config` | `<tmp>/tilo-mcp-<chat>.json`, que declara o servidor MCP `tilo` (`aprovador-mcp.mjs`). |
 | `--permission-prompt-tool` | `mcp__tilo__approve`. |
 | `--append-system-prompt` | Texto fixo `SYSTEM` de `server.mjs` + a regra de tom da conversa (`instrucaoTom` em `tom.mjs`); ver "Tom das respostas" abaixo. |
