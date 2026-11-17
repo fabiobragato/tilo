@@ -62,7 +62,7 @@ As regras `deny` das settings (segredos, arquivos do próprio Tilo) continuam va
 Na partida, o servidor lê `claude-settings.json` e acrescenta regras `deny` com o nome real da pasta do Tilo, gravando `<tmp>/tilo-settings.json`:
 
 - Leitura negada: `.env*` (variações), `.ssh/**`, `.claude/**`, `*.pem`, `id_ed25519*`, `id_rsa*` (do arquivo base) e, na pasta do Tilo, `.token` e `projetos.json`.
-- Edição/escrita negadas na pasta do Tilo: `assets/**`, `modelos/**`, `scripts/**`, `dados/**`, `catalogo/**`, `logos/**` e os arquivos `server.mjs`, `aprovador-mcp.mjs`, `politica.mjs`, `catalogo.mjs`, `projetos.mjs`, `claude-settings.json`, `projetos.json`, `index.html`, `inicio.html`, `package.json`, `iniciar.cmd` e os arquivos `*.test.mjs`.
+- Edição/escrita negadas na pasta do Tilo: `assets/**`, `modelos/**`, `scripts/**`, `dados/**`, `catalogo/**`, `logos/**`, `lixeira/**` e os arquivos `server.mjs`, `aprovador-mcp.mjs`, `politica.mjs`, `catalogo.mjs`, `projetos.mjs`, `claude-settings.json`, `projetos.json`, `index.html`, `inicio.html`, `package.json`, `iniciar.cmd` e os arquivos `*.test.mjs`.
 - Edição/escrita de `.env*` negada em qualquer pasta.
 
 ## Aprovador MCP (`aprovador-mcp.mjs`)

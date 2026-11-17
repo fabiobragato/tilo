@@ -40,6 +40,36 @@ test('adicionar, listar, editar e remover (sem apagar pasta nem dados)', () => {
   assert.throws(() => projetos.remover(id), /não encontrado/);
 });
 
+test('remover com apagarDados move dados/<id>/ e imagens para a lixeira, nunca toca a pasta do projeto', () => {
+  const raiz = novaPasta();
+  const png = 'data:image/png;base64,' + Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(8)]).toString('base64');
+  const { id } = projetos.adicionar({ nome: 'Apagar Tudo', raiz, estruturaBase: true, icone: png });
+  const dadosDir = path.join(base, 'dados', id);
+  projetos.obter(id); // garante dados/<id>/
+  const img = path.join(base, 'logos', `${id}-icone.png`);
+  assert.ok(fs.existsSync(dadosDir) && fs.existsSync(img));
+  const lix = projetos.remover(id, { apagarDados: true }).lixeira;
+  assert.ok(fs.existsSync(path.join(lix, 'projeto.json')) && fs.existsSync(path.join(lix, 'dados')) && fs.existsSync(path.join(lix, 'logos', path.basename(img))), 'tudo recuperável na lixeira');
+  assert.ok(!fs.existsSync(dadosDir), 'dados saíram do lugar');
+  assert.ok(!fs.existsSync(img), 'imagem saiu do lugar');
+  assert.ok(fs.existsSync(path.join(raiz, 'CLAUDE.md')), 'pasta do projeto intacta');
+});
+
+test('remover com apagarPendencias apaga só pendencias/README.md', () => {
+  const raiz = novaPasta();
+  const { id } = projetos.adicionar({ nome: 'Sem Pendencias', raiz, estruturaBase: true });
+  const lix = projetos.remover(id, { apagarPendencias: true }).lixeira;
+  assert.ok(!fs.existsSync(path.join(raiz, 'pendencias')), 'README e pasta vazia apagados');
+  assert.ok(fs.existsSync(path.join(lix, 'pendencias-README.md')), 'cópia na lixeira');
+  assert.ok(fs.existsSync(path.join(raiz, 'CLAUDE.md')) && fs.existsSync(path.join(raiz, 'docs', 'README.md')), 'resto intacto');
+  const raiz2 = novaPasta();
+  const o = projetos.adicionar({ nome: 'Com Outro Arquivo', raiz: raiz2, estruturaBase: true });
+  fs.writeFileSync(path.join(raiz2, 'pendencias', 'notas.md'), 'x');
+  projetos.remover(o.id, { apagarPendencias: true });
+  assert.ok(!fs.existsSync(path.join(raiz2, 'pendencias', 'README.md')));
+  assert.ok(fs.existsSync(path.join(raiz2, 'pendencias', 'notas.md')), 'pasta com outros arquivos permanece');
+});
+
 test('imagem que não é PNG/JPG/WEBP é recusada', () => {
   const svg = 'data:image/svg+xml;base64,' + Buffer.from('<svg/>').toString('base64');
   assert.throws(() => projetos.adicionar({ nome: 'Img', raiz: novaPasta(), icone: svg }), /PNG, JPG ou WEBP/);
