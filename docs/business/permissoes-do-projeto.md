@@ -11,7 +11,7 @@ Deixar o dono ajustar, sem programar, o que o Claude faz sozinho em cada projeto
 | Bloco | Conteúdo |
 |---|---|
 | Liberado de fábrica | Comandos só de consulta (ver [aprovacao-de-comandos.md](aprovacao-de-comandos.md)). |
-| Pacotes opcionais | `testes` (rodar testes e verificações) e `build` (compilar). Vêm desligados. |
+| Pacotes opcionais | `testes` (rodar testes e verificações), `build` (compilar) e `docker` (subir e reconstruir os serviços do docker compose). Vêm desligados. |
 | Comandos que você liberou | Comandos lembrados, com explicação, data e botão de remover. |
 | Nunca permitido | Lista de fábrica e bloqueios do projeto. |
 | Atenção redobrada (produção) | Lista de fábrica e itens do projeto. |

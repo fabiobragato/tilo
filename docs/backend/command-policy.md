@@ -28,12 +28,15 @@ Produção (pedem confirmação extra): `ssh`, `scp`, `sftp`, `rsync`; comandos 
 
 Liberadas (comando único, só consulta): `git status|log|diff|show|branch` (sem `--output`); `ls`; `pwd`; `docker ps`; `docker compose ps`; `docker (compose) logs`; `node|npm|npx|python|python3|dotnet|git|docker|pwsh|java|go|cargo` com `--version`, `-v` ou `version`.
 
+Exceção em "mexer em senhas e chaves": em comando único (sem os caracteres do passo 4, exceto barra invertida) que começa com `docker compose`, o caminho dado a `--env-file` não conta como acesso ao `.env`, porque só indica ao Docker qual arquivo usar. Qualquer outra menção a `.env` no comando continua bloqueada. Esse comando cai em `perguntar` e pode ser lembrado pelo dono.
+
 ## Pacotes opcionais (`PACOTES`)
 
 | Id | Comandos liberados quando ligado |
 |---|---|
 | `testes` | `npm test`, `npm run` seguido de `test`, `lint`, `check` ou `typecheck` (com sufixo `:nome`), `dotnet test`, `pytest` (ou `python -m pytest`), `ng test`, `node --test`. |
 | `build` | `npm run build` (com sufixo `:nome`), `dotnet build`, `ng build`. |
+| `docker` | `docker compose [opções] up\|build\|restart\|stop\|start [argumentos]`. As opções antes do subcomando são `--env-file`, `-f`/`--file`, `-p`/`--project-name` e `--profile`. Não libera `down`, `exec`, `run`, `config` nem `pull`. |
 
 Argumentos extras aceitos nesses comandos: palavras simples com letras, números, `. / : = @ ~ -`.
 

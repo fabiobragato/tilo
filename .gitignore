@@ -3,6 +3,7 @@
 dados/
 projetos.json
 logos/
+lixeira/
 *.log
 assets/tilo.ico
 node_modules/

@@ -4,7 +4,7 @@
 //   permitir -> liberado sem perguntar (somente leitura de fábrica + o que o dono lembrou/ligou neste projeto)
 //   perguntar-> vai para a UI; risco 'producao' destaca em vermelho e pede confirmação extra
 // Regras DE FÁBRICA valem para todos os projetos e não podem ser removidas. O projeto só ACRESCENTA:
-//   pacotes opcionais (testes, build), comandos lembrados (texto exato que o dono aprovou), bloqueios e "cuidado extra" por texto.
+//   pacotes opcionais (testes, build, docker), comandos lembrados (texto exato que o dono aprovou), bloqueios e "cuidado extra" por texto.
 // Ordem: negar (fábrica + projeto) > produção (fábrica + projeto) > lembrado (texto exato) > liberado (fábrica + pacotes) > perguntar.
 
 import path from 'node:path';
@@ -15,6 +15,8 @@ const META = /[;&|<>`$(){}\\\n\r]/;
 // Portas do próprio Tilo: a padrão (4777) e as configuradas por variável de ambiente (só números, para entrar com segurança na regex).
 export const PORTAS_TILO = [...new Set(['4777', process.env.TILO_PORT, process.env.TILO_PUBLIC_PORT].filter((p) => /^\d{2,5}$/.test(p || '')))];
 const ARG = String.raw`(?: [\w./:=@~\-]+)*`;
+// Opções que vêm antes do subcomando do docker compose (arquivo de ambiente, arquivo compose, nome do projeto, perfil).
+const OPT_COMPOSE = String.raw`(?: (?:--env-file|-f|--file|-p|--project-name|--profile)[ =][\w./:=@~\-]+)*`;
 
 // [regex, título curto, explicação para leigos]
 export const PADRAO = {
@@ -70,6 +72,13 @@ export const PACOTES = {
       [/^npm run build(?::[\w-]+)?$/, 'Compila o projeto (npm)'],
       [new RegExp(String.raw`^dotnet build${ARG}$`), 'Compila o projeto (.NET)'],
       [new RegExp(String.raw`^ng build${ARG}$`), 'Compila o projeto (Angular)'],
+    ],
+  },
+  docker: {
+    titulo: 'Subir e reconstruir serviços (Docker)', descricao: 'O Claude sobe, reconstrói, reinicia, para e liga os serviços do docker compose do projeto. Não libera derrubar (down), apagar dados, rodar comandos dentro de containers nem ler o conteúdo do .env.',
+    regras: [
+      [new RegExp(String.raw`^docker compose${OPT_COMPOSE} up${ARG}$`), 'Sobe ou reconstrói os serviços (docker compose up)'],
+      [new RegExp(String.raw`^docker compose${OPT_COMPOSE} (?:build|restart|stop|start)${ARG}$`), 'Reconstrói, reinicia, para ou liga serviços (docker compose)'],
     ],
   },
 };
@@ -131,12 +140,15 @@ export function avaliar(tool, input = {}, extra = SEM_EXTRA) {
   if (!SHELLS.has(tool)) return { acao: 'perguntar', risco: 'normal', resumo: `${tool} ${JSON.stringify(input).slice(0, 500)}`, motivo: 'ferramenta fora de Bash/PowerShell', origem: 'fábrica' };
   const cmd = textoDoComando(input);
   if (!cmd) return { acao: 'negar', risco: 'normal', resumo: '', motivo: 'comando vazio', origem: 'fábrica' };
-  const acha = (fabrica, custom) => {
-    for (const [re, motivo] of fabrica) if (re.test(cmd)) return { motivo, origem: 'fábrica' };
-    for (const [re, motivo] of custom) if (re.test(cmd)) return { motivo, origem: 'projeto' };
+  // `docker compose --env-file <caminho>.env ...` só indica ao Docker qual arquivo usar: não lê nem mostra o conteúdo.
+  // Por isso o caminho do --env-file não conta como "mexer em senhas" (só em comando único; o resto do texto continua checado).
+  const semEnvFile = /^docker(?:\s+compose|-compose)\b/i.test(cmd) && !/[;&|<>`$(){}\n\r]/.test(cmd) ? cmd.replace(/\s--env-file(?:=|\s+)["']?[\w.\/\\:\-]+["']?/gi, ' --env-file') : cmd;
+  const acha = (fabrica, custom, texto = cmd) => {
+    for (const [re, motivo] of fabrica) if (re.test(texto)) return { motivo, origem: 'fábrica' };
+    for (const [re, motivo] of custom) if (re.test(texto)) return { motivo, origem: 'projeto' };
     return null;
   };
-  let h = acha(PADRAO.negar, extra.bloqueios);
+  let h = acha(PADRAO.negar, extra.bloqueios, semEnvFile);
   if (h) return { acao: 'negar', risco: 'normal', resumo: cmd, ...h };
   h = acha(PADRAO.producao, extra.producao);
   if (h) return { acao: 'perguntar', risco: 'producao', resumo: cmd, ...h };
