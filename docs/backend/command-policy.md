@@ -20,13 +20,17 @@ Ferramentas diferentes de `Bash` e `PowerShell` sempre resultam em `perguntar`. 
 4. Se o comando não contém nenhum destes caracteres: ponto e vírgula, `&`, `|`, `<`, `>`, crase, `$`, parênteses, chaves, barra invertida ou quebra de linha — e é liberado de fábrica ou por pacote ligado → `permitir`.
 5. Caso contrário → `perguntar` (`risco: normal`).
 
+Exceção ao passo 4: o comando pode ter até 6 pedaços separados por `;`, e cada pedaço pode terminar com um sufixo que só limita a saída (`2>&1`, `| tail -N`, `| head -N`, `| Select-Object -First|-Last N`). O sufixo é ignorado e o comando é `permitir` se **todos** os pedaços forem, cada um sozinho, liberados de fábrica, por pacote ligado ou lembrados. Qualquer outro caractere do passo 4 (`&&`, `|` com outro programa, `>` etc.) mantém a regra de comando único. Os passos 1 e 2 olham o texto inteiro.
+
 ## Regras de fábrica (`PADRAO`)
 
 Bloqueadas (títulos): apagar arquivos em massa; formatar disco; derrubar serviços apagando dados (`docker compose down -v`); apagar dados do Docker à força; reescrever histórico no GitHub (`git push --force`/`-f`/`--force-with-lease`); descartar mudanças (`git reset --hard`); apagar arquivos novos do git (`git clean -f`); mexer em senhas e chaves (`.env` exceto `.env.example`, `.ssh`, `id_*`, `.token`, `.claude`, `credentials`, `.pem`); mexer no próprio Tilo (localhost nas portas do Tilo — `4777` e as de `TILO_PORT`/`TILO_PUBLIC_PORT`, lidas na partida — ou `api/aprovacao`; outras portas locais não são afetadas); enviar arquivos para a internet (`curl`/`wget` com dados de arquivo, `Invoke-WebRequest` com `-InFile`/`-Body`); executar código escondido (`| sh`/`bash`/`iex`, `-EncodedCommand`, `base64 -d |`).
 
 Produção (pedem confirmação extra): `ssh`, `scp`, `sftp`, `rsync`; comandos contendo `migrate`, `deploy`, `publicar`, `publish`; `git push`; `curl`/`wget`/`Invoke-WebRequest` para fora de localhost/127.0.0.1.
 
-Liberadas (comando único, só consulta): `git status|log|diff|show|branch` (sem `--output`); `ls`; `pwd`; `docker ps`; `docker compose ps`; `docker (compose) logs`; `node|npm|npx|python|python3|dotnet|git|docker|pwsh|java|go|cargo` com `--version`, `-v` ou `version`.
+Liberadas (comando único, só consulta): `git status|log|diff|show|branch` (sem `--output`); `ls`; `pwd`; `docker ps`; `docker compose [opções] ps` (opções: `--env-file`, `-f`, `-p`, `--profile`); `docker (compose) logs`; `node|npm|npx|python|python3|dotnet|git|docker|pwsh|java|go|cargo` com `--version`, `-v` ou `version`.
+
+Exceção em "mexer em senhas e chaves": nos pedaços que começam com `docker compose` (ver exceção do passo 4), o caminho dado a `--env-file` não conta como acesso ao `.env`, porque só indica ao Docker qual arquivo usar. Qualquer outra menção a `.env` no comando continua bloqueada. Esse comando cai em `perguntar` e pode ser lembrado pelo dono.
 
 ## Pacotes opcionais (`PACOTES`)
 
@@ -34,6 +38,7 @@ Liberadas (comando único, só consulta): `git status|log|diff|show|branch` (sem
 |---|---|
 | `testes` | `npm test`, `npm run` seguido de `test`, `lint`, `check` ou `typecheck` (com sufixo `:nome`), `dotnet test`, `pytest` (ou `python -m pytest`), `ng test`, `node --test`. |
 | `build` | `npm run build` (com sufixo `:nome`), `dotnet build`, `ng build`. |
+| `docker` | `docker compose [opções] up\|build\|restart\|stop\|start [argumentos]`. As opções antes do subcomando são `--env-file`, `-f`/`--file`, `-p`/`--project-name` e `--profile`. Não libera `down`, `exec`, `run`, `config` nem `pull`. |
 
 Argumentos extras aceitos nesses comandos: palavras simples com letras, números, `. / : = @ ~ -`.
 

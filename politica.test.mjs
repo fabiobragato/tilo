@@ -28,6 +28,40 @@ test('segredos e auto-aprovação são negados', () => {
   assert.notEqual(acao('cat .env.example'), 'negar');
 });
 
+test('--env-file do docker compose não é tratado como mexer em senhas', () => {
+  const rebuild = 'docker compose --env-file infra/docker/.env -f infra/docker/docker-compose.yml up --build -d';
+  assert.equal(acao(rebuild), 'perguntar');
+  assert.equal(avaliar('Bash', { command: rebuild }, compilar({ lembrados: [{ comando: rebuild }] })).acao, 'permitir');
+  // continua negando ler o .env de verdade
+  for (const c of ['docker compose --env-file infra/docker/.env up; cat infra/docker/.env', 'cat --env-file .env', 'docker compose --env-file .env up && cat .env', 'docker compose up -d .env'])
+    assert.equal(acao(c), 'negar', c);
+});
+
+test('pacote docker libera subir/reconstruir serviços, só quando ligado', () => {
+  const rebuild = 'docker compose --env-file infra/docker/.env -f infra/docker/docker-compose.yml up --build -d';
+  const aj = (c, cfg) => avaliar('Bash', { command: c }, compilar(cfg));
+  assert.equal(aj(rebuild, {}).acao, 'perguntar');
+  assert.equal(aj(rebuild, { pacotes: ['docker'] }).acao, 'permitir');
+  assert.equal(aj('docker compose restart api', { pacotes: ['docker'] }).acao, 'permitir');
+  for (const c of ['docker compose down', 'docker compose exec api sh', 'docker compose run api ls', 'docker compose up -d; rm x', 'docker compose up -d .env', 'docker compose config', 'docker compose --env-file .env config', 'docker compose up -d && docker compose down -v'])
+    assert.notEqual(aj(c, { pacotes: ['docker'] }).acao, 'permitir', c);
+});
+
+test('sufixo que só limita a saída e `;` entre comandos liberados', () => {
+  const aj = (c, cfg = {}) => avaliar('Bash', { command: c }, compilar(cfg));
+  const dk = { pacotes: ['docker'] };
+  const up = 'docker compose --env-file infra/docker/.env -f infra/docker/docker-compose.yml up --build -d';
+  const ps = 'docker compose --env-file infra/docker/.env -f infra/docker/docker-compose.yml ps';
+  assert.equal(aj(`${up} 2>&1 | tail -15`, dk).acao, 'permitir');
+  assert.equal(aj(`${up} 2>&1 | tail -12; ${ps} 2>&1 | tail -6`, dk).acao, 'permitir');
+  assert.equal(aj(`${up} 2>&1 | Select-Object -Last 30`, dk).acao, 'permitir');
+  assert.equal(aj(`${up} 2>&1 | tail -15`).acao, 'perguntar'); // sem o pacote, pergunta (não nega)
+  assert.equal(aj('git status 2>&1 | head -5').acao, 'permitir');
+  for (const c of [`${up}; rm x`, `${up} | sh`, `${up} 2>&1 | tee out.txt`, `${up}; cat infra/docker/.env`, `${up} && ${ps}`, 'git status; git push --force', 'git status; ls | xargs rm'])
+    assert.notEqual(aj(c, dk).acao, 'permitir', c);
+  assert.equal(aj(`${up}; cat infra/docker/.env`, dk).acao, 'negar');
+});
+
 test('porta de outro serviço local não é tratada como o Tilo', () => {
   assert.notEqual(acao('curl http://localhost:3000/api/users'), 'negar');
   assert.equal(avaliar('Bash', { command: 'curl http://localhost:4777/api/x' }).motivo, 'Mexer no próprio Tilo');
