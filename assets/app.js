@@ -388,11 +388,13 @@ function renderChatGit() {
   if (!g.repo) { root.innerHTML = '<span class="muted small"><i class="pi pi-info-circle"></i> Projeto sem git: não há branch para mostrar.</span>'; return; }
   root.innerHTML = gitBarHtml(g);
 }
+// Branches que existem no GitHub (já baixadas com fetch) mas ainda não têm cópia local; escolher uma cria a local e troca.
+const branchesSoRemotas = (g) => (g.remotas || []).filter((r) => { const o = (g.remotos || []).find((x) => r.startsWith(x + '/')); return o && !g.branches.includes(r.slice(o.length + 1)); });
 // Barra de git (chat e aba Alterações): branch, Nova branch, Commitar (abre o modal com os arquivos) e Pull.
 function gitBarHtml(g) {
   const dis = S.alt.busy ? 'disabled' : '', n = g.arquivos.length;
   return `${g.branches.length ? `<label class="alt-branch" title="Branch atual. Escolha outra para trocar; as alterações não commitadas acompanham você, se não houver conflito."><i class="pi pi-sitemap"></i>
-      <select class="sel sm" data-chg="alt-branch" aria-label="Branch atual" ${dis}>${g.branches.map((b) => `<option value="${esc(b)}" ${b === g.branch ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select></label>`
+      <select class="sel sm" data-chg="alt-branch" aria-label="Branch atual" ${dis}>${g.branches.map((b) => `<option value="${esc(b)}" ${b === g.branch ? 'selected' : ''}>${esc(b)}</option>`).join('')}${branchesSoRemotas(g).map((r) => `<option value="${esc(r)}">${esc(r)} (só no GitHub)</option>`).join('')}</select></label>`
     : badge(g.branch || 'sem branch', 'primary', 'pi-sitemap')}
     ${g.branches.length ? `<span class="sep"></span><button class="btn sm" data-act="chat-nova-branch" ${dis} title="Cria uma branch nova a partir das suas alterações locais (branch atual) ou de outra branch, e já troca para ela."><i class="pi pi-plus"></i> Nova branch</button>` : ''}
     ${g.branches.length ? `<button class="btn sm" data-act="commit-modal" ${dis} title="${n ? 'Escolhe os arquivos alterados, escreve a mensagem e cria o commit' : 'Não há alterações para commitar'}"><i class="pi pi-check-circle"></i> Commitar${n ? ` <span class="badge tone-primary">${n}</span>` : ''}</button>` : ''}
@@ -814,6 +816,7 @@ document.addEventListener('click', async (e) => {
       case 'go': location.hash = '#/' + d.to; break;
       case 'alt-diff': await altDiff(d.p); break;
       case 'alt-commit': await altCommit(!!d.modal); break;
+      case 'alt-desfazer': await altDesfazer(d.p); break;
       case 'commit-modal': abrirCommitModal(); break;
       case 'cm-fechar': $('#cdlg').close(); break;
       case 'cm-marcar': { const A = S.alt; A.sel.clear(); if (d.v === '1') for (const a of A.dados?.arquivos || []) if (!a.sensivel) A.sel.add(a.caminho); renderAlteracoes(); break; }
@@ -892,10 +895,10 @@ document.addEventListener('click', async (e) => {
       }
       case 'revogar-sessao': await api('/api/aprovacao/sessao', { id: d.id }); toast('Aprovação automática desligada.'); await loadChats(); S.chatKey = null; updateChat(); break;
       case 'doc-iniciar': {
-        const modelo = $('#doc-modelo')?.value || 'sonnet';
+        const modelo = $('#doc-modelo')?.value || 'sonnet', branch = $('#doc-branch')?.value || '';
         
         el.disabled = true;
-        try { const c = await api('/api/documentacao/iniciar', { modo: d.modo, modelo }); toast('Documentação iniciada. Acompanhe por aqui.'); location.hash = `#/chat?s=${c.id}`; }
+        try { const c = await api('/api/documentacao/iniciar', { modo: d.modo, modelo, branch }); toast('Documentação iniciada. Acompanhe por aqui.'); location.hash = `#/chat?s=${c.id}`; }
         catch (x) { toast(x.message); el.disabled = false; }
         break;
       }
@@ -994,12 +997,21 @@ document.addEventListener('change', (e) => {
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.id === 'perm-cmd') { e.preventDefault(); document.querySelector('[data-act="perm-test"]').click(); } });
 async function loadDocumentacao(silencioso) {
-  try { const g = await api('/api/documentacao'); S.doc = { ...g, modelo: $('#doc-modelo')?.value || S.doc?.modelo || 'sonnet' }; }
+  try { const g = await api('/api/documentacao'); S.doc = { ...g, modelo: $('#doc-modelo')?.value || S.doc?.modelo || 'sonnet', branch: $('#doc-branch')?.value || S.doc?.branch || '' }; }
   catch (x) { if (!silencioso) { const r = $('#doc-root'); if (r) r.innerHTML = `<div class="note">Não consegui carregar: ${esc(x.message)}</div>`; } return; }
+  if (!S.alt.dados) await loadAlteracoes(); // a pergunta de branch precisa do estado do git
   renderDocumentacao();
   // atualiza sozinho só enquanto a documentação está sendo gerada
   if (S.docTimer && !S.doc.job?.rodando) { clearInterval(S.docTimer); S.docTimer = null; }
   if (!S.docTimer && S.doc.job?.rodando) S.docTimer = setInterval(() => { if (route() !== 'documentacao') { clearInterval(S.docTimer); S.docTimer = null; return; } loadDocumentacao(true); }, 4000);
+}
+// Pergunta em qual branch gerar a documentação (o Claude lê o código e escreve os arquivos nela). Só aparece se o projeto é um repositório git.
+function docBranchHtml(D, rodando) {
+  const g = S.alt?.dados;
+  if (!g?.repo || !g.branches.length) return '';
+  const atual = D.branch && (g.branches.includes(D.branch) || branchesSoRemotas(g).includes(D.branch)) ? D.branch : g.branch;
+  const op = (v, t) => `<option value="${esc(v)}" ${v === atual ? 'selected' : ''}>${esc(t)}</option>`;
+  return `<label title="A documentação é gerada com o código desta branch e os arquivos novos ficam nela (sem commitar). Se for outra, o Tilo troca para ela antes de começar.">Branch base <select id="doc-branch" class="sel sm" ${rodando ? 'disabled' : ''}>${g.branches.map((b) => op(b, b === g.branch ? b + ' (atual)' : b)).join('')}${branchesSoRemotas(g).map((r) => op(r, r + ' (só no GitHub)')).join('')}</select></label>`;
 }
 function renderDocumentacao() {
   const root = $('#doc-root'); if (!root || !S.doc) return;
@@ -1018,7 +1030,7 @@ function renderDocumentacao() {
       <li><b>Não mexe no código</b>, não usa terminal e não lê senhas (.env, chaves). Só escreve em <code>docs/</code>, <code>planning/</code>, <code>pendencias/</code> e <code>CLAUDE.md</code>.</li>
       <li><b>Arquivos novos</b> são criados direto. Para <b>alterar um arquivo que já existe</b>, ele pede a sua aprovação.</li>
       <li><b>Tempo e uso:</b> de 5 a 30 minutos, conforme o tamanho do projeto, usando a sua assinatura do Claude.</li></ul></details>
-    <div class="doc-acoes"><label>Modelo de IA <select id="doc-modelo" class="sel sm">${optsModelo(D.modelo || DEFAULT_MODEL)}</select></label>
+    <div class="doc-acoes"><label>Modelo de IA <select id="doc-modelo" class="sel sm">${optsModelo(D.modelo || DEFAULT_MODEL)}</select></label>${docBranchHtml(D, rodando)}
       <span class="sp"></span>
       <button class="btn ${vazio ? 'primary' : ''}" data-act="doc-iniciar" title="O Claude lê o projeto e trabalha na pasta docs/; você acompanha na conversa que abre" data-modo="criar" ${rodando ? 'disabled' : ''}><i class="pi pi-plus"></i> ${vazio ? 'Montar a documentação' : 'Criar o que falta'}</button>
       ${vazio ? '' : `<button class="btn primary" data-act="doc-iniciar" title="O Claude lê o projeto e trabalha na pasta docs/; você acompanha na conversa que abre" data-modo="atualizar" ${rodando ? 'disabled' : ''}><i class="pi pi-refresh"></i> Conferir com o código e atualizar</button>`}</div></div></div>
@@ -1206,7 +1218,8 @@ function renderAlteracoes() {
       <input type="checkbox" class="sw" data-chg="alt-sel" data-p="${esc(a.caminho)}" ${A.sel.has(a.caminho) ? 'checked' : ''} ${a.sensivel ? 'disabled' : ''} title="${a.sensivel ? 'Parece conter segredos: o Tilo não commita este arquivo' : 'Incluir este arquivo no commit'}" aria-label="Incluir ${esc(a.caminho)} no commit">
       ${badge(a.rotulo, tom)}<code class="alt-path">${esc(a.caminho)}</code>${a.antigo ? `<span class="muted small">(era ${esc(a.antigo)})</span>` : ''}
       <span class="alt-conv">${a.conversas.length ? a.conversas.map(altChip).join('') : '<span class="muted small" title="Nenhuma conversa do Tilo editou este arquivo (ou a mudança veio de um comando ou de fora do Tilo)">sem conversa vinculada</span>'}</span>
-      ${a.sensivel ? '' : `<button class="btn sm" data-act="alt-diff" data-p="${esc(a.caminho)}" title="${aberto ? 'Esconde' : 'Mostra'} o que mudou neste arquivo"><i class="pi ${aberto ? 'pi-chevron-up' : 'pi-eye'}"></i> ${aberto ? 'Esconder' : 'Ver mudanças'}</button>`}</div>
+      ${a.sensivel ? '' : `<button class="btn sm" data-act="alt-diff" data-p="${esc(a.caminho)}" title="${aberto ? 'Esconde' : 'Mostra'} o que mudou neste arquivo"><i class="pi ${aberto ? 'pi-chevron-up' : 'pi-eye'}"></i> ${aberto ? 'Esconder' : 'Ver mudanças'}</button>`}
+      ${a.sensivel || a.rotulo === 'conflito' ? '' : `<button class="btn sm danger" data-act="alt-desfazer" data-p="${esc(a.caminho)}" ${A.busy ? 'disabled' : ''} title="Volta este arquivo ao último commit (uma cópia fica na lixeira do Tilo)"><i class="pi pi-undo"></i> Desfazer</button>`}</div>
       ${aberto ? `<pre class="alt-diff">${df ? (df.erro ? esc(df.erro) : altDiffHtml(df.diff) + (df.cortado ? '\n<span class="hunk">… diff cortado (arquivo grande)</span>' : '')) : 'Carregando…'}</pre>` : ''}</li>`;
   }).join('');
   const conv = altConversasDoCommit(), nSel = A.sel.size;
@@ -1315,6 +1328,16 @@ async function altCommit(doModal) {
   catch (x) { if (doModal && A.modal) A.erroCommit = x.message; else toast(x.message); } // o toast fica atrás do modal aberto; no modal o erro aparece dentro dele
   A.busy = false; if (ok && doModal && A.modal) $('#cdlg').close();
   await loadAlteracoes(true);
+}
+async function altDesfazer(caminho) {
+  const A = S.alt, a = A.dados?.arquivos.find((x) => x.caminho === caminho);
+  if (!a) return;
+  const novo = a.rotulo === 'novo';
+  if (!(await confirmar({ titulo: `Desfazer as alterações de ${caminho}?`, texto: (novo ? 'O arquivo é novo: ele será removido da pasta do projeto.' : 'O arquivo volta ao que está no último commit e você perde o que mudou nele.') + ' Uma cópia (arquivo ou patch) fica em lixeira/descartes/ na pasta do Tilo. Fica registrado na auditoria.', ok: 'Desfazer', perigo: true, icone: 'pi-undo' }))) return;
+  A.busy = true; renderAlteracoes();
+  try { const r = await api('/api/alteracoes/descartar', { caminho }); A.sel.delete(caminho); A.abertos.delete(caminho); delete A.diffs[caminho]; toast(r.acao === 'removido' ? 'Arquivo removido' : 'Alterações desfeitas'); }
+  catch (x) { toast(x.message); }
+  A.busy = false; await loadAlteracoes(true);
 }
 async function altBranch(acao, nome, base = '') {
   const A = S.alt;

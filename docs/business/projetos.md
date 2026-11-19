@@ -19,16 +19,16 @@ Permitir que o dono registre as pastas dos seus projetos e abra o painel de cada
 
 ## 3. Fluxos
 
-- **Cadastrar:** tela de seleção, tile "+" ou tecla `N`. Opções: "Criar estrutura base se faltar" (marcada por padrão) e "Montar a documentação do projeto com o Claude".
+- **Cadastrar:** tela de seleção, tile "+" ou tecla `N`. Opção: "Criar estrutura base se faltar" (marcada por padrão). A documentação com o Claude não é pedida no cadastro: fica na aba Documentação do projeto.
 - **Estrutura base:** cria, sem sobrescrever nada que exista, `pendencias/README.md`, `docs/README.md`, `planning/README.md` e `CLAUDE.md`, com textos iniciais curtos.
-- **Montar a documentação:** depois de cadastrar, abre a tela Documentação do projeto; o início da execução ainda precisa ser confirmado ali ([documentacao-com-claude.md](documentacao-com-claude.md)).
+- **Montar a documentação:** depois de cadastrar, abra o projeto e use a aba Documentação ([documentacao-com-claude.md](documentacao-com-claude.md)). Lá você escolhe a branch base e confirma o início.
 - **Editar:** tecla `E` ou botão "Editar projeto". Muda nome, descrição, cor e imagens; a pasta não muda. Dá para remover o ícone ou o logo (volta ao cartão com as iniciais).
 - **Imagem ausente:** o tile e o menu mostram um cartão SVG com as iniciais do nome sobre a cor do projeto.
 - **Dados do projeto:** ficam em `dados/<id>/`, fora da pasta do projeto ([../backend/data-storage.md](../backend/data-storage.md)).
 
 ## Regras
 
-- **Tirar da lista:** botão "Tirar da lista" na tela de seleção (com confirmação) ou `POST /api/projetos/remover`. Só retira o projeto de `projetos.json`: a pasta do projeto, `dados/<id>/` (conversas, auditoria) e `logos/` não são apagados.
+- **Tirar da lista:** botão "Tirar da lista" na tela de seleção (com confirmação) ou `POST /api/projetos/remover`. Por padrão só retira o projeto de `projetos.json`: a pasta do projeto, `dados/<id>/` (conversas, auditoria) e `logos/` não são apagados. A confirmação tem a caixa "Apagar também os dados do Tilo deste projeto" (desmarcada por padrão; `apagarDados: true` na API): move `dados/<id>/` e as imagens do projeto em `logos/` para `lixeira/<id>-<data>/` (junto com `projeto.json`, o cadastro com cor, descrição e permissões); para desfazer, copie de volta. A caixa "Apagar também `pendencias/README.md` do projeto" (desmarcada por padrão; `apagarPendencias: true`) tira só esse arquivo da pasta do projeto (uma cópia vai para a mesma lixeira) e apaga a pasta `pendencias/` se ficar vazia. Marcar qualquer uma das duas caixas exige digitar o nome do projeto para liberar o botão. Nada mais da pasta do projeto é apagado (`CLAUDE.md`, `docs/` e `planning/` ficam).
 - O Tilo só funciona no Windows (decisão do dono); macOS e Linux estão fora do escopo.
 - A pasta cadastrada é onde o `claude` roda (diretório de trabalho).
 - Arquivos do projeto liberados para visualização no painel: pastas listadas em `pastasLegiveis` (padrão `docs`, `planning`, `pendencias`, `apps`, `infra`); nunca arquivos `.env`.

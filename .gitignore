@@ -1,6 +1,7 @@
 # Local (não vai para o git)
 .token
 dados/
+lixeira/
 projetos.json
 logos/
 lixeira/

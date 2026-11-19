@@ -88,11 +88,18 @@ function confirmarRemocao(p) {
   const dlg = $('#conf');
   $('#conf-t').textContent = `Tirar "${p.nome}" da lista?`;
   $('#conf-sub').textContent = 'O projeto some da seleção, mas pode ser adicionado de novo depois.';
-  $('#conf-det').textContent = 'A pasta do projeto e as conversas guardadas no Tilo NÃO são apagadas.';
+  $('#conf-det').textContent = 'A pasta do projeto nunca é apagada. Por padrão, as conversas guardadas no Tilo também ficam.';
+  $('#conf-dados').checked = $('#conf-pend').checked = false; $('#conf-nome').value = '';
+  const atualiza = () => { // marcar "apagar" exige digitar o nome do projeto
+    const exige = $('#conf-dados').checked || $('#conf-pend').checked;
+    $('#conf-nome-w').hidden = !exige;
+    $('#conf-ok').disabled = exige && $('#conf-nome').value.trim().toLowerCase() !== p.nome.trim().toLowerCase();
+  };
+  dlg.oninput = dlg.onchange = atualiza; atualiza();
   return new Promise((resolve) => {
     let r = false;
     dlg.onclick = (e) => { const id = e.target.closest('button')?.id; if (id === 'conf-ok') { r = true; dlg.close(); } else if (id === 'conf-no' || e.target === dlg) dlg.close(); };
-    dlg.onclose = () => { dlg.onclick = dlg.onclose = null; resolve(r); };
+    dlg.onclose = () => { dlg.onclick = dlg.onclose = dlg.oninput = dlg.onchange = null; resolve(r ? { apagarDados: $('#conf-dados').checked, apagarPendencias: $('#conf-pend').checked } : null); };
     dlg.showModal(); $('#conf-no').focus();
   });
 }
@@ -100,8 +107,9 @@ $('#info').addEventListener('click', async (e) => {
   if (e.target.closest('#edit-btn')) return editar(S.projetos[S.sel]);
   if (!e.target.closest('#del-btn')) return;
   const p = S.projetos[S.sel]; if (!p) return;
-  if (!await confirmarRemocao(p)) return;
-  try { await api('/api/projetos/remover', { id: p.id }); S.sel = 0; await carregar(); toast('Projeto removido da lista.'); }
+  const opc = await confirmarRemocao(p);
+  if (!opc) return;
+  try { await api('/api/projetos/remover', { id: p.id, apagarDados: opc.apagarDados, apagarPendencias: opc.apagarPendencias }); S.sel = 0; await carregar(); toast(opc.apagarDados || opc.apagarPendencias ? 'Projeto removido e arquivos apagados.' : 'Projeto removido da lista.'); }
   catch (x) { toast(x.message); }
 });
 $('#n-cancel').addEventListener('click', () => $('#novo').close());
@@ -115,7 +123,6 @@ $('#novo-form').addEventListener('submit', async (e) => {
       : await api('/api/projetos', { ...dados, raiz: $('#n-raiz').value.trim(), estruturaBase: $('#n-base').checked });
     if (S.editId) r.id = S.editId, r.criado = [];
     S.v = Date.now();
-    if (!S.editId && $('#n-doc').checked) { location.href = `/p/${r.id}#/documentacao`; return; } // projeto existente: segue para a tela de documentação
     $('#novo').close();
     await carregar();
     S.sel = Math.max(0, S.projetos.findIndex((p) => p.id === r.id)); render();

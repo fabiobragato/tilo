@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { estado, diff, commitar, enviar, puxar, reaplicar, trocarBranch, criarBranch, nomeBranchValido, historico, arquivosDoCommit, diffDoCommit, lerArquivosDoCommit, lerStatus, lerLog, montarMensagem, injetarTrailer, ehSensivel, vincularArquivos, gitDisponivel } from './git.mjs';
+import { estado, diff, commitar, enviar, puxar, reaplicar, trocarBranch, criarBranch, descartar, nomeBranchValido, historico, arquivosDoCommit, diffDoCommit, lerArquivosDoCommit, lerStatus, lerLog, montarMensagem, injetarTrailer, ehSensivel, vincularArquivos, gitDisponivel } from './git.mjs';
 
 const temGit = await gitDisponivel();
 const ID1 = '11111111-1111-4111-8111-111111111111';
@@ -105,6 +105,29 @@ test('estado, diff e commit com trailer', { skip: !temGit }, async () => {
   await assert.rejects(enviar(dir), /remoto/);
 });
 
+test('descartar: volta modificado, remove novo e renomeado, guarda backup, recusa segredo', { skip: !temGit }, async () => {
+  const dir = repo(), bk = tmp('bk');
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'mudou\n');
+  assert.equal((await descartar(dir, 'a.txt', bk)).acao, 'restaurado');
+  assert.equal(fs.readFileSync(path.join(dir, 'a.txt'), 'utf8').replace(/\r\n/g, '\n'), 'um\n'); // no Windows o git pode converter fim de linha
+  assert.ok(fs.readdirSync(bk).some((n) => n.endsWith('.patch')), 'patch guardado');
+  fs.rmSync(path.join(dir, 'a.txt')); // apagado
+  await descartar(dir, 'a.txt', bk);
+  assert.ok(fs.existsSync(path.join(dir, 'a.txt')));
+  fs.writeFileSync(path.join(dir, 'novo.txt'), 'x\n'); // não rastreado
+  assert.equal((await descartar(dir, 'novo.txt', bk)).acao, 'removido');
+  assert.ok(!fs.existsSync(path.join(dir, 'novo.txt')) && fs.existsSync(path.join(bk, 'novo.txt')), 'removido, com cópia no backup');
+  fs.writeFileSync(path.join(dir, 'prep.txt'), 'p\n'); sh(dir, 'add', 'prep.txt'); // novo já preparado
+  await descartar(dir, 'prep.txt', bk);
+  assert.ok(!fs.existsSync(path.join(dir, 'prep.txt')) && !sh(dir, 'status', '--porcelain').includes('prep.txt'));
+  sh(dir, 'mv', 'a.txt', 'b.txt'); // renomeado
+  await descartar(dir, 'b.txt', bk);
+  assert.ok(fs.existsSync(path.join(dir, 'a.txt')) && !fs.existsSync(path.join(dir, 'b.txt')) && sh(dir, 'status', '--porcelain').trim() === '');
+  fs.writeFileSync(path.join(dir, 'chave.pem'), 'x\n'); // arquivo com cara de segredo
+  await assert.rejects(() => descartar(dir, 'chave.pem', bk), /segredos/);
+  await assert.rejects(() => descartar(dir, 'nao-existe.txt', bk), /não está entre/);
+});
+
 test('commits não enviados, vínculo por trailer e push', { skip: !temGit }, async () => {
   const dir = repo();
   const remoto = tmp('bare');
@@ -175,6 +198,22 @@ test('listar, criar e trocar de branch (feature-*)', { skip: !temGit }, async ()
   assert.deepEqual(await criarBranch(dir, 'feature-b', 'feature-login'), { ok: true, branch: 'feature-b' }); // parte de outra branch
   assert.equal((await estado(dir)).branch, 'feature-b');
   assert.equal(await nomeBranchValido(dir, 'feature/ok-1.2'), 'feature/ok-1.2');
+});
+
+test('trocar para branch que só existe no GitHub cria a local acompanhando a remota', { skip: !temGit }, async () => {
+  const dir = repo(), remoto = tmp('bare-sr');
+  sh(remoto, 'init', '-q', '--bare', '-b', 'main');
+  sh(dir, 'remote', 'add', 'origin', remoto);
+  await enviar(dir);
+  sh(dir, 'switch', '-q', '-c', 'develop'); sh(dir, 'push', '-q', '-u', 'origin', 'develop');
+  sh(dir, 'switch', '-q', 'main'); sh(dir, 'branch', '-q', '-D', 'develop'); // fica só origin/develop
+  let e = await estado(dir);
+  assert.ok(!e.branches.includes('develop') && e.remotas.includes('origin/develop'));
+  assert.deepEqual(await trocarBranch(dir, 'origin/develop'), { ok: true, branch: 'develop', mudou: true });
+  e = await estado(dir);
+  assert.equal(e.branch, 'develop'); assert.equal(e.upstream, 'origin/develop');
+  sh(dir, 'switch', '-q', 'main'); // agora a local existe: escolher a remota só troca para ela
+  assert.equal((await trocarBranch(dir, 'origin/develop')).branch, 'develop');
 });
 
 test('pull: junta uma branch remota (develop) na atual e desfaz em conflito', { skip: !temGit }, async () => {
