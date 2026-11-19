@@ -14,6 +14,8 @@ export const FERRAMENTAS_ARQUIVO = ['Write', 'Edit', 'MultiEdit'];
 const META = /[;&|<>`$(){}\\\n\r]/;
 // Portas do próprio Tilo: a padrão (4777) e as configuradas por variável de ambiente (só números, para entrar com segurança na regex).
 export const PORTAS_TILO = [...new Set(['4777', process.env.TILO_PORT, process.env.TILO_PUBLIC_PORT].filter((p) => /^\d{2,5}$/.test(p || '')))];
+const META_SEM_PV = /[&|<>`$(){}\n\r]/;
+const SUFIXO_SAIDA = /(?:\s*2>&1)?(?:\s*\|\s*(?:(?:tail|head)(?:\s+-n?\s*\d+)?|select-object\s+-(?:first|last)\s+\d+))?\s*$/i;
 const ARG = String.raw`(?: [\w./:=@~\-]+)*`;
 // Opções que vêm antes do subcomando do docker compose (arquivo de ambiente, arquivo compose, nome do projeto, perfil).
 const OPT_COMPOSE = String.raw`(?: (?:--env-file|-f|--file|-p|--project-name|--profile)[ =][\w./:=@~\-]+)*`;
@@ -47,7 +49,7 @@ export const PADRAO = {
     [/^ls(?: -[a-zA-Z]+)?(?: [\w./\-]+)*$/, 'Listar arquivos de uma pasta', 'Mostra os nomes dos arquivos de uma pasta.'],
     [/^pwd$/, 'Ver em que pasta está', 'Mostra a pasta atual.'],
     [/^docker ps(?: -a)?$/, 'Listar containers', 'Mostra quais containers estão rodando.'],
-    [/^docker compose(?: -f [\w./:\-]+)? ps$/, 'Listar serviços do projeto', 'Mostra o estado dos serviços do docker compose.'],
+    [new RegExp(String.raw`^docker compose${OPT_COMPOSE} ps(?: -a)?$`), 'Listar serviços do projeto', 'Mostra o estado dos serviços do docker compose.'],
     [new RegExp(String.raw`^docker (?:compose )?logs${ARG}$`), 'Ler logs de containers', 'Mostra as mensagens que os serviços registraram.'],
     [/^(?:node|npm|npx|python|python3|dotnet|git|docker|pwsh|java|go|cargo) (?:--version|-v|version)$/, 'Ver a versão de um programa', 'Mostra a versão instalada de um programa.'],
   ],
@@ -140,9 +142,13 @@ export function avaliar(tool, input = {}, extra = SEM_EXTRA) {
   if (!SHELLS.has(tool)) return { acao: 'perguntar', risco: 'normal', resumo: `${tool} ${JSON.stringify(input).slice(0, 500)}`, motivo: 'ferramenta fora de Bash/PowerShell', origem: 'fábrica' };
   const cmd = textoDoComando(input);
   if (!cmd) return { acao: 'negar', risco: 'normal', resumo: '', motivo: 'comando vazio', origem: 'fábrica' };
+  // Pedaços do comando separados por `;`, sem o sufixo que só limita a saída (`2>&1`, `| tail -N`, `| head -N`, `| Select-Object -First/-Last N`).
+  // É null se sobrar qualquer outro caractere de encadeamento: aí vale a regra rígida de comando único.
+  const pedacos = cmd.split(';').map((s) => s.trim().replace(SUFIXO_SAIDA, '').trim());
+  const simples = pedacos.length <= 6 && pedacos.every((s) => s && !META_SEM_PV.test(s)) ? pedacos : null;
   // `docker compose --env-file <caminho>.env ...` só indica ao Docker qual arquivo usar: não lê nem mostra o conteúdo.
-  // Por isso o caminho do --env-file não conta como "mexer em senhas" (só em comando único; o resto do texto continua checado).
-  const semEnvFile = /^docker(?:\s+compose|-compose)\b/i.test(cmd) && !/[;&|<>`$(){}\n\r]/.test(cmd) ? cmd.replace(/\s--env-file(?:=|\s+)["']?[\w.\/\\:\-]+["']?/gi, ' --env-file') : cmd;
+  // Por isso o caminho do --env-file não conta como "mexer em senhas" (o resto do texto continua checado).
+  const semEnvFile = simples ? simples.map((s) => (/^docker(?:\s+compose|-compose)\b/i.test(s) ? s.replace(/\s--env-file(?:=|\s+)["']?[\w.\/\\:\-]+["']?/gi, ' --env-file') : s)).join('; ') : cmd;
   const acha = (fabrica, custom, texto = cmd) => {
     for (const [re, motivo] of fabrica) if (re.test(texto)) return { motivo, origem: 'fábrica' };
     for (const [re, motivo] of custom) if (re.test(texto)) return { motivo, origem: 'projeto' };
@@ -153,7 +159,11 @@ export function avaliar(tool, input = {}, extra = SEM_EXTRA) {
   h = acha(PADRAO.producao, extra.producao);
   if (h) return { acao: 'perguntar', risco: 'producao', resumo: cmd, ...h };
   if (extra.lembrados.has(cmd)) return { acao: 'permitir', risco: 'normal', resumo: cmd, motivo: 'você já aprovou este comando neste projeto', origem: 'projeto' };
-  if (!META.test(cmd)) { h = acha(PADRAO.permitir, extra.pacotes); if (h) return { acao: 'permitir', risco: 'normal', resumo: cmd, ...h }; }
+  // Liberado só se TODO pedaço for, sozinho, liberado de fábrica, por pacote ligado ou lembrado.
+  if (simples) {
+    const achados = simples.map((s) => (extra.lembrados.has(s) ? { motivo: 'você já aprovou este comando neste projeto', origem: 'projeto' } : !META.test(s) ? acha(PADRAO.permitir, extra.pacotes, s) : null));
+    if (achados.every(Boolean)) return { acao: 'permitir', risco: 'normal', resumo: cmd, ...achados[0] };
+  }
   return { acao: 'perguntar', risco: 'normal', resumo: cmd, motivo: 'comando novo: precisa da sua aprovação', origem: 'fábrica' };
 }
 

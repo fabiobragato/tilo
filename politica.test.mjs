@@ -47,6 +47,21 @@ test('pacote docker libera subir/reconstruir serviços, só quando ligado', () =
     assert.notEqual(aj(c, { pacotes: ['docker'] }).acao, 'permitir', c);
 });
 
+test('sufixo que só limita a saída e `;` entre comandos liberados', () => {
+  const aj = (c, cfg = {}) => avaliar('Bash', { command: c }, compilar(cfg));
+  const dk = { pacotes: ['docker'] };
+  const up = 'docker compose --env-file infra/docker/.env -f infra/docker/docker-compose.yml up --build -d';
+  const ps = 'docker compose --env-file infra/docker/.env -f infra/docker/docker-compose.yml ps';
+  assert.equal(aj(`${up} 2>&1 | tail -15`, dk).acao, 'permitir');
+  assert.equal(aj(`${up} 2>&1 | tail -12; ${ps} 2>&1 | tail -6`, dk).acao, 'permitir');
+  assert.equal(aj(`${up} 2>&1 | Select-Object -Last 30`, dk).acao, 'permitir');
+  assert.equal(aj(`${up} 2>&1 | tail -15`).acao, 'perguntar'); // sem o pacote, pergunta (não nega)
+  assert.equal(aj('git status 2>&1 | head -5').acao, 'permitir');
+  for (const c of [`${up}; rm x`, `${up} | sh`, `${up} 2>&1 | tee out.txt`, `${up}; cat infra/docker/.env`, `${up} && ${ps}`, 'git status; git push --force', 'git status; ls | xargs rm'])
+    assert.notEqual(aj(c, dk).acao, 'permitir', c);
+  assert.equal(aj(`${up}; cat infra/docker/.env`, dk).acao, 'negar');
+});
+
 test('porta de outro serviço local não é tratada como o Tilo', () => {
   assert.notEqual(acao('curl http://localhost:3000/api/users'), 'negar');
   assert.equal(avaliar('Bash', { command: 'curl http://localhost:4777/api/x' }).motivo, 'Mexer no próprio Tilo');
